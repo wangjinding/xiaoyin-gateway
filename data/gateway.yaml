@@ -74,6 +74,11 @@ providers:
         display_name: "Agnes Video 2.5"
         type: "video"
       # 2026-09-24 自动同步：官方文档新增（scripts/sync_models.py）
+      # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "agnes-2.5-pro-beta"
+        display_name: "Agnes 2.5 Pro Beta"
+        type: "text"
+        # 文档现价 ¥3/M 输入、¥6/M 输出
 
   opencode:
     name: "OpenCode Go"
@@ -159,12 +164,6 @@ providers:
         # 统一生效）；客户端不传 temperature 时也会显式按 1 发送，与上游默认值一致。
         params:
           temperature: 1
-      - id: "kimi-k2.6"
-        display_name: "Kimi K2.6"
-        type: "text"
-        context_window: 262144    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 65536    # 最大输出（token）
-        protocols: ["chat/completions"]
       - id: "longcat-2.0"
         display_name: "LongCat 2.0"
         type: "text"
@@ -256,38 +255,8 @@ providers:
         context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
         max_output_tokens: 384000    # 最大输出（token）
         protocols: ["chat/completions", "messages", "responses"]
-      - id: "deepseek-v4-flash"
-        display_name: "DeepSeek V4 Flash"
-        type: "text"
-        context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 384000    # 最大输出（token）
-        protocols: ["chat/completions", "messages", "responses"]
-      - id: "deepseek-v4-flash-vision-exp"
-        display_name: "DeepSeek V4 Flash Vision Exp"
-        type: "text"
-        context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 384000    # 最大输出（token）
-        vision: true   # 官方标 Vision，支持图像转 token 输入
-        protocols: ["chat/completions", "messages", "responses"]
       # ── Anthropic Messages 线（文档主推这条）─────────────
-      - id: "minimax-m2.7"
-        display_name: "MiniMax M2.7"
-        type: "text"
-        context_window: 204800    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 131072    # 最大输出（token）
-        # 实测：messages 线 200，chat / responses 都是 500 → 只标 messages
-        protocols: ["messages"]
-      # 2026-09-21：`union-alpha`（Union Alpha Free）已从上游 Go 计划下线（/models 不再返回，
-      #   实测 messages 线回 400「Model is unavailable.」）→ 条目移除；免费位由
-      #   `space-bunny-free` 接替（见上面 chat 段，带「免费」标注）。
       # ── OpenAI Responses 线 ───────────────────────────────
-      - id: "grok-4.6"
-        display_name: "Grok 4.6"
-        type: "text"
-        context_window: 500000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 500000    # 最大输出（token）
-        # 实测：responses 200；chat / messages 都是 401 "not supported for format"
-        protocols: ["responses"]
       - id: "grok-4.7"
         display_name: "Grok 4.7"
         type: "text"
@@ -333,13 +302,6 @@ providers:
         protocols: ["chat/completions"]
         free: true     # 官方价格表标 Free
       # 2026-10-07 自动同步：官方文档新增（scripts/sync_models.py）
-      - id: "space-bunny"
-        display_name: "Space Bunny"
-        type: "text"
-        context_window: 1048576    # 同步 2026-10-08（scripts/sync_models.py）
-        max_output_tokens: 524288    # 同步 2026-10-08（scripts/sync_models.py）
-        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
-        protocols: ["chat/completions"]
       # 2026-10-08 自动同步：官方文档新增（scripts/sync_models.py）
       - id: "claude-haiku-5-5"
         display_name: "Claude Haiku 5 5"
@@ -348,15 +310,27 @@ providers:
         max_output_tokens: 128000    # 同步 2026-10-09（scripts/sync_models.py）
         # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
         protocols: ["messages"]
-      # 2026-10-09 自动同步：官方文档新增（scripts/sync_models.py）
-      - id: "step-5-preview-free"
-        display_name: "Step 5 Preview Free"
+      # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "beam-free"
+        display_name: "Beam Free"
         type: "text"
-        context_window: 1000000    # 同步 2026-10-10（scripts/sync_models.py）
-        max_output_tokens: 65536    # 同步 2026-10-10（scripts/sync_models.py）
         # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
         protocols: ["chat/completions"]
         free: true     # 官方价格表标 Free
+      # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "minimax-m3.1-flash-free"
+        display_name: "Minimax M3.1 Flash Free"
+        type: "text"
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+        free: true     # 官方价格表标 Free
+      # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "step-5-preview"
+        display_name: "Step 5 Preview"
+        type: "text"
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+      # 2026-10-09 自动同步：官方文档新增（scripts/sync_models.py）
   # ── Dots AI（小红书 Dots Studio，第三十六轮新增）──────────────
   # 官方文档：https://dots.ai/platform/docs（2026-09-28 通读）
   #   · 基础地址 https://note3-prev-api.askdiandian.com，两条线：
@@ -454,6 +428,7 @@ pricing:
     agnes-3.0-flash:      { input: 0, output: 0 }   # 同步 2026-09-24（原 0.35/1；文档现价 ¥0/M 输入、¥0/M 输出）
     agnes-2.5-flash:      { input: 0, output: 0 }   # 文档现价暂免（输入/输出/缓存命中均 ¥0/百万）
     agnes-2.5-pro:        { input: 3, output: 6 }   # 2026-09-24 自动同步（文档现价）
+    agnes-2.5-pro-beta:   { input: 3, output: 6 }   # 2026-10-21 自动同步（文档现价）
 
 # ── 媒体下载代理白名单（第十七轮）────────────────────────
 # 生成的图片/视频挂在第三方 CDN 上且不带 CORS 头，浏览器里既 fetch 不到 blob、
