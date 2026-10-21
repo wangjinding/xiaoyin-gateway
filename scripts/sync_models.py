@@ -95,6 +95,25 @@ def _norm(s: str) -> str:
 OC_PROTOCOLS = ("chat/completions", "messages", "responses")
 OC_SKIPPED: list[str] = []
 
+# 2026-10-21：Go 页脚注里**写明了地区限制**，之前的解析只认表格、把脚注漏了 ——
+#   "Beam Free: Free for a limited time. Not available in Angola, Belarus, Cambodia,
+#    China (including Hong Kong and Macau), Cuba, the Democratic Republic of the Congo,
+#    Equatorial Guinea, Iran, Iraq, Laos, Libya, Nigeria, North Korea, Russia, Syria,
+#    Turkmenistan, Uz..."
+#   "Muse Spark 1.x Contributor: ... Availability is limited to regions permitted by
+#    Meta's Geographic Use Policy."
+# 本机出口在中国大陆，实测这三个模型都是 403 RegionError「This model is not available
+# in your country」（zen 与 inference 两条地址都试过，换地址没用；key 本身正常，
+# 同批新模型 minimax-m3.1-flash-free / step-5-preview 都是 200）。
+# 口径：**跳过不落盘**——不新增；网关里已有的按"文档已不收录"处理（删掉）。
+# 以后换到境外出口、或文档解除限制，把 id 从这里移走即可恢复同步。
+OC_REGION_BLOCKED = {
+    "beam-free",
+    "muse-spark-1.3-contributor",
+    "muse-spark-1.2-contributor",
+}
+OC_REGION_SKIPPED: list[str] = []
+
 
 def _oc_protocol(url: str) -> str | None:
     """文档 Endpoint → 网关协议线；认不出返回 None。"""
@@ -110,6 +129,7 @@ def fetch_opencode() -> dict[str, dict]:
     html = _get(OC_DOC_URL)
     models: dict[str, dict] = {}
     skipped: list[str] = []
+    region_skipped: list[str] = []
     for row in re.findall(r"<tr>(.*?)</tr>", html, re.S):
         cells = [_strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
         if len(cells) < 4 or "opencode.ai/" not in cells[2]:
@@ -118,10 +138,14 @@ def fetch_opencode() -> dict[str, dict]:
         if proto is None:
             skipped.append(cells[1])
             continue
+        if cells[1] in OC_REGION_BLOCKED:
+            region_skipped.append(cells[1])
+            continue
         models[cells[1]] = {"name": cells[0], "protocol": proto, "free": False}
     if not models:
         raise RuntimeError("OpenCode 文档没解析出 Endpoints 表（页面可能改版）")
     OC_SKIPPED[:] = sorted(skipped)
+    OC_REGION_SKIPPED[:] = sorted(region_skipped)
 
     # 免费模型：价格表里 Input/Output 都是 Free 的那些（名字对 id 做归一匹配）
     by_norm = {_norm(mid): mid for mid in models}
@@ -475,6 +499,7 @@ def diff(cfg: dict, oc_doc: dict, agnes_doc: dict,
         "free_drift": free_drift,
         "ctx_drift": oc_ctx_drift,
         "skipped": list(OC_SKIPPED),
+        "region_skipped": list(OC_REGION_SKIPPED),
     }
 
     # Agnes
@@ -594,6 +619,9 @@ def render(report: dict) -> str:
     if oc.get("skipped"):
         lines.append("  跳过（文档端点不是三条网关协议线，网关不支持）：")
         lines += [f"    · {m}" for m in oc["skipped"]]
+    if oc.get("region_skipped"):
+        lines.append("  跳过（文档/实测：对中国大陆出口不可用，RegionError）：")
+        lines += [f"    · {m}" for m in oc["region_skipped"]]
 
     lines.append("")
     lines.append(f"== Agnes ==  文档 {ag['doc_count']} 个 / 网关 {ag['cfg_count']} 个")
