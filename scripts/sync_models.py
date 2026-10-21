@@ -84,18 +84,44 @@ def _norm(s: str) -> str:
 
 
 # ── OpenCode Go ────────────────────────────────────────────────
+# 2026-10-21 文档改版：Endpoints 表里的地址从
+#   https://opencode.ai/zen/go/v1/<path>          （旧）
+# 改成按供应商分线：
+#   https://opencode.ai/inference/go/openai/v1/chat/completions
+#   https://opencode.ai/inference/go/openai/v1/responses
+#   https://opencode.ai/inference/go/anthropic/v1/messages
+#   https://opencode.ai/inference/go/google/v1beta/models/<id>  （Google 原生，网关不支持）
+# 网关只认三条线，所以按「路径末尾」认协议线，认不出的（Google 原生）跳过并报告。
+OC_PROTOCOLS = ("chat/completions", "messages", "responses")
+OC_SKIPPED: list[str] = []
+
+
+def _oc_protocol(url: str) -> str | None:
+    """文档 Endpoint → 网关协议线；认不出返回 None。"""
+    path = url.split("?", 1)[0].rstrip("/")
+    for proto in OC_PROTOCOLS:
+        if path.endswith("/" + proto):
+            return proto
+    return None
+
+
 def fetch_opencode() -> dict[str, dict]:
     """返回 {model_id: {name, protocol, free}}。"""
     html = _get(OC_DOC_URL)
     models: dict[str, dict] = {}
+    skipped: list[str] = []
     for row in re.findall(r"<tr>(.*?)</tr>", html, re.S):
         cells = [_strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
-        if len(cells) < 4 or "/zen/go/v1/" not in cells[2]:
+        if len(cells) < 4 or "opencode.ai/" not in cells[2]:
             continue
-        tail = cells[2].split("/zen/go/v1/", 1)[1].strip("/").split("?")[0]
-        models[cells[1]] = {"name": cells[0], "protocol": tail, "free": False}
+        proto = _oc_protocol(cells[2])
+        if proto is None:
+            skipped.append(cells[1])
+            continue
+        models[cells[1]] = {"name": cells[0], "protocol": proto, "free": False}
     if not models:
         raise RuntimeError("OpenCode 文档没解析出 Endpoints 表（页面可能改版）")
+    OC_SKIPPED[:] = sorted(skipped)
 
     # 免费模型：价格表里 Input/Output 都是 Free 的那些（名字对 id 做归一匹配）
     by_norm = {_norm(mid): mid for mid in models}
@@ -448,6 +474,7 @@ def diff(cfg: dict, oc_doc: dict, agnes_doc: dict,
         "protocol_drift": proto_drift,
         "free_drift": free_drift,
         "ctx_drift": oc_ctx_drift,
+        "skipped": list(OC_SKIPPED),
     }
 
     # Agnes
@@ -564,6 +591,9 @@ def render(report: dict) -> str:
     if not any(oc[k] for k in ("added", "removed", "protocol_drift", "free_drift",
                                "ctx_drift")):
         lines.append("  无漂移 ✓")
+    if oc.get("skipped"):
+        lines.append("  跳过（文档端点不是三条网关协议线，网关不支持）：")
+        lines += [f"    · {m}" for m in oc["skipped"]]
 
     lines.append("")
     lines.append(f"== Agnes ==  文档 {ag['doc_count']} 个 / 网关 {ag['cfg_count']} 个")
