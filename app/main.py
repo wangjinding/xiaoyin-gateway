@@ -340,7 +340,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.7.2"
+VERSION = "2.7.3"
 
 app = FastAPI(
     title="API Gateway",
@@ -2935,6 +2935,8 @@ async def metrics(request: Request, _auth=Depends(require_auth)):
     if not _cfg().server.metrics_enabled:
         raise HTTPException(404, "metrics 已禁用")
     # M5+: 普通账号只看自己名下调用产生的聚合，admin 看全局 + 熔断状态。
+    # 2026-10-22（老板）：成员首页要看自己调用的次数统计，所以**不**把本端点收成仅管理员；
+    #   按账号聚合的逻辑保持原样（全局字段的收敛在 /health 里做）。
     if request.state.role == "admin":
         snap = _metrics.snapshot()
         snap["circuits"] = _circuits.statuses()  # P2-16 熔断状态
@@ -3778,6 +3780,25 @@ async def health(request: Request, _auth=Depends(require_auth_or_open)):
         return {"status": "ok"}
     cfg = _cfg()
     snap = _metrics.snapshot() if cfg.server.metrics_enabled else {}
+    # 2026-10-22（老板）：成员首页需要"运行时长 / 并发 / 供应商列表"这些运行态，
+    #   但**全局** token 总量、各模型的全局调用量与失败率、供应商熔断状态属运维数据，
+    #   只应收口给管理员（此前任何有效 Bearer 都能读到全站用量）。
+    if request.state.role != "admin":
+        return {
+            "status": "ok",
+            "version": VERSION,
+            "uptime_seconds": snap.get("uptime_seconds"),
+            "in_flight": snap.get("in_flight", 0),
+            "in_flight_peak": snap.get("in_flight_peak", 0),
+            "providers": {
+                pkey: {
+                    "name": pconfig.name,
+                    "api_key_set": bool(pconfig.auth.resolve_token()),
+                    "models": len(pconfig.models),
+                }
+                for pkey, pconfig in cfg.providers.items()
+            },
+        }
     calls = snap.get("calls", {})
     # 每模型失败率 + 平均耗时
     model_health = {}

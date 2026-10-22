@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 2026-10-22 · 成员只看自己的用量 + AI 接口不再被 WAF 误杀（2.7.2 → 2.7.3）
+
+老板：「改，替换重启，更新文档，推送 gitea」；随后补充「成员在首页是要看到自己调用的次数统计」。
+
+起因是一个真实工单：成员 `chenghongchang` 反馈「拿 apikey 请求 403」。排查结论是**两层问题**：
+
+### 1. `/health` 把全站用量给了成员（安全）
+`/health` 只要带**任意有效 Bearer**（含 member 的 API Key）就返回
+**全局 `tokens` 总量、各模型的全局调用量/失败率（`models`）、供应商熔断状态（`circuit` / `media_circuit`）**。
+
+- 现在按角色分流：非 admin 只返回**运行态** —— `status` / `version` / `uptime_seconds` /
+  `in_flight` / `in_flight_peak` / `providers`（仅 `name`、`api_key_set`、`models` 数量）。
+- **全员** token 总量、模型级全局统计、熔断状态**仅管理员**可见。
+- 前端没有用到被收敛的字段（Dashboard 只用 `version` / `uptime_seconds` / `in_flight` / `in_flight_peak` / `providers`），
+  所以**前端零改动、无需重新构建**。
+
+### 2. `/metrics` 明确保留按账号聚合（老板口径）
+- 成员首页的「我今天调了多少次」来自 `/metrics`，因此**不收成仅管理员**；
+  按账号聚合的逻辑保持原样（`_metrics.snapshot(request.state.account)`）。
+- 实测：成员连调 2 次后自己看到 `deepseek-v4.1-flash: ok=2`，管理员看到全局 `ok=3`。
+
+### 3. 运维侧：1Panel WAF 放行 `/v1/`
+成员那台 403 的真正来源是 **1Panel WAF 检查请求体**：AI 编程客户端（WorkBuddy 等）
+发出的提示词里带 `<script>`、`../`、`system(` 就被当成攻击拦截（403 响应 16711/23682 字节的拦截页）。
+
+- 给 `1pwaf` 的 `rules/urlWhite.json` 增加 `{"state":"on","name":"000901","rule":"^/v1/","type":"urlWhite"}`，
+  使网关的 AI 接口跳过内容检查；`/v1/` 之外仍照常拦截（实测 `/.env`、`/etc/passwd` 依旧 403）。
+- 背景、证据与排查手册见 `docs/waf-api-access.md`。
+
 ## 2026-10-12 · 清除旧托管残留（远端 / 脚本 / 文档）
 
 老板：「旧托管的都删了，代码，文档相关的都去掉」。
