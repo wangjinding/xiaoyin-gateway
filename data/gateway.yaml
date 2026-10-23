@@ -299,20 +299,18 @@ providers:
         protocols: ["messages"]
       # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
       # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
-      - id: "minimax-m3.1-flash-free"
-        display_name: "Minimax M3.1 Flash Free"
-        type: "text"
-        context_window: 1000000    # 同步 2026-10-21（scripts/sync_models.py）
-        max_output_tokens: 512000    # 同步 2026-10-21（scripts/sync_models.py）
-        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
-        protocols: ["chat/completions"]
-        free: true     # 官方价格表标 Free
       # 2026-10-21 自动同步：官方文档新增（scripts/sync_models.py）
       - id: "step-5-preview"
         display_name: "Step 5 Preview"
         type: "text"
         context_window: 1000000    # 同步 2026-10-21（scripts/sync_models.py）
         max_output_tokens: 65536    # 同步 2026-10-21（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+      # 2026-10-23 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "minimax-m3.1-flash"
+        display_name: "Minimax M3.1 Flash"
+        type: "text"
         # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
         protocols: ["chat/completions"]
       # 2026-10-09 自动同步：官方文档新增（scripts/sync_models.py）
