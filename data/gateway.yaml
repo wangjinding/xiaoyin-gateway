@@ -375,7 +375,8 @@ server:
   hot_reload: true        # 监听 gateway.yaml mtime 自动重载（改配置免重启）
   hot_reload_interval: 15 # 重载检查间隔（秒）
   metrics_enabled: true   # 记录调用指标（/metrics）
-  rate_limit_rps: null    # 全局单 user QPS 上限（null=不限；供应商级用 provider.rate_limit_rps）
+  rate_limit_rps: 20      # 全局单 user QPS 上限（2026-10-23 由 null 改为 20：防泄露 Key 打爆额度；
+                          #   供应商级限流仍由 provider.rate_limit_rps 控制，两者取更严的那个）
   # 请求体字节上限。2026-09-24 从 2MB 提到 20MB：带图对话（生成/上传的 PNG 以
   #   base64 内联进历史，单张 100KB~750KB）几张就顶爆 2MB → 上游 413
   #   「请求体超过上限 2000000 字节」。内部网关 + nginx 两层把关，保留限制只调大数字。

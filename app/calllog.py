@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import sqlite3
 import threading
@@ -41,6 +42,12 @@ DB_PATH = os.environ.get("CALLLOG_DB") or os.path.join(_ROOT, "data", "calllog.d
 RETENTION_DAYS = int(os.environ.get("CALLLOG_RETENTION_DAYS") or 90)
 QUEUE_MAX = int(os.environ.get("CALLLOG_QUEUE_MAX") or 10000)
 CONTENT_MAX = int(os.environ.get("CALLLOG_CONTENT_MAX") or 8388608)
+# 库体积上限（2026-10-23）：超过就从最旧的开始删，直到降到 80% 以下。
+#   为什么要它：内容"不截断"后单条可达 MB 级（实测有一条 1.4MB 的 prompt），
+#   90 天保留本身不封顶，光靠时间兜不住体积。
+MAX_BYTES = int(os.environ.get("CALLLOG_MAX_BYTES") or 2 * 1024 ** 3)   # 2 GiB
+TRIM_TARGET = 0.8      # 删到上限的 80% 停手，避免每次清理只删一点点
+VACUUM_FREELIST_RATIO = 0.25   # 空闲页超过 1/4 才 VACUUM（且每天最多一次）
 DISABLED = os.environ.get("CALLLOG_DISABLED", "") not in ("", "0", "false", "False")
 
 BATCH = 200                 # 攒够多少条提交一次
@@ -310,9 +317,11 @@ class CallLogStore:
 
     # ── 清理 ────────────────────────────────────────────────────
     def cleanup(self) -> int:
+        """按时间清理 → 按体积收紧 → 必要时 VACUUM。返回删除条数。"""
         if not self.enabled or self._db is None:
             return 0
         cutoff = time.time() - self.retention_days * 86400
+        n = 0
         try:
             with self._lock:
                 cur = self._db.execute("DELETE FROM api_calls WHERE ts < ?", (cutoff,))
@@ -320,13 +329,100 @@ class CallLogStore:
                 self._db.execute("DELETE FROM video_jobs WHERE status != 'pending' AND done_at < ?",
                                  (time.time() - 7 * 86400,))
                 self._db.commit()
-            n = cur.rowcount or 0
+            n += cur.rowcount or 0
             if n:
                 log.info("调用日志清理：删除 %d 条（早于 %d 天前）", n, self.retention_days)
-            return n
         except Exception as e:  # noqa: BLE001
             log.warning("调用日志清理失败: %s", e)
+        n += self._trim_to_size()
+        self._maybe_vacuum()
+        return n
+
+    def _live_bytes(self) -> int:
+        """有效数据字节数 =（总页 − 空闲页）× 页大小。
+
+        **必须用它而不是文件大小**来判断是否超标：SQLite 的 DELETE 只是把页挂到 freelist，
+        文件不会变小 —— 按文件大小判断会"删光了也不见降"，进而把数据全删光。
+        """
+        try:
+            with self._lock:
+                pc = self._db.execute("PRAGMA page_count").fetchone()[0] or 0
+                fl = self._db.execute("PRAGMA freelist_count").fetchone()[0] or 0
+                ps = self._db.execute("PRAGMA page_size").fetchone()[0] or 4096
+            return max(0, pc - fl) * ps
+        except Exception:  # noqa: BLE001
             return 0
+
+    def _trim_to_size(self, max_bytes: int | None = None) -> int:
+        """库**有效数据**超过 MAX_BYTES 时，从最旧的开始批量删，直到降到 TRIM_TARGET 以下。
+
+        「不截断内容」的代价就是单条可能很大（实测有 1.4MB 的 prompt），光靠 90 天保留
+        兜不住体积 —— 这里按字节封顶。删完若空闲页占比高，再 VACUUM 真正回收磁盘。
+        """
+        limit = max_bytes or MAX_BYTES
+        if not self.enabled or self._db is None or limit <= 0:
+            return 0
+        target = int(limit * TRIM_TARGET)
+        if self._live_bytes() <= limit:
+            return 0
+        deleted = 0
+        try:
+            while True:
+                live = self._live_bytes()
+                if live <= target:
+                    break
+                rows = self._db.execute("SELECT COUNT(*) FROM api_calls").fetchone()[0] or 0
+                if not rows:
+                    break
+                # 按平均行大小精确估算要删多少条（固定 200 条的批量会把数据删过头）
+                avg = max(1, live // rows)
+                need = max(1, math.ceil((live - target) / avg))
+                with self._lock:
+                    cur = self._db.execute(
+                        "DELETE FROM api_calls WHERE id IN "
+                        "(SELECT id FROM api_calls ORDER BY ts ASC LIMIT ?)", (int(need),))
+                    self._db.commit()
+                    got = cur.rowcount or 0
+                deleted += got
+                if not got:
+                    break
+            if deleted:
+                self._maybe_vacuum(force=True)
+                log.warning("调用日志超出 %d MB 上限，已按最旧优先删除 %d 条（现存 %.1f MB）",
+                            limit // (1024 * 1024), deleted, self._live_bytes() / 1024 / 1024)
+        except Exception as e:  # noqa: BLE001
+            log.warning("调用日志体积收紧失败: %s", e)
+        return deleted
+
+    def _maybe_vacuum(self, force: bool = False) -> None:
+        """回收空闲页（VACUUM）。每天最多一次，避免频繁锁库；force=True 时跳过占比判断。"""
+        if not self.enabled or self._db is None:
+            return
+        now = time.time()
+        # force=True（体积收紧后要立刻回收）必须绕过每日守卫，否则刚删完的数据空间不会释放
+        if not force and now - getattr(self, "_last_vacuum", 0) < 86400:
+            return
+        try:
+            with self._lock:
+                pc = self._db.execute("PRAGMA page_count").fetchone()[0] or 0
+                fl = self._db.execute("PRAGMA freelist_count").fetchone()[0] or 0
+                if not pc:
+                    return
+                if not force and fl / pc < VACUUM_FREELIST_RATIO:
+                    return
+                before = os.path.getsize(self.path) / 1024 / 1024
+                self._db.execute("VACUUM")
+                # WAL 模式下 VACUUM 的产物先进 -wal，必须 checkpoint 回主库文件才会真正变小
+                try:
+                    self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:  # noqa: BLE001
+                    pass
+                after = os.path.getsize(self.path) / 1024 / 1024
+            self._last_vacuum = now
+            if before - after > 0.5:
+                log.info("调用日志 VACUUM：%.1f MB → %.1f MB（空闲页 %d/%d）", before, after, fl, pc)
+        except Exception as e:  # noqa: BLE001
+            log.warning("调用日志 VACUUM 失败: %s", e)
 
     # ── 查询 ────────────────────────────────────────────────────
     def _where(self, *, start: float | None, end: float | None, account: str | None,
