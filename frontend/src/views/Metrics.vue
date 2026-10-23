@@ -1,5 +1,15 @@
 <template>
   <div class="page">
+    <!-- 2026-10-23：指标口径切换（后端 /metrics?days=） -->
+    <div class="range-bar">
+      <span class="sub">{{ t('metrics.rangeLabel') }}</span>
+      <el-radio-group v-model="days" size="small" @change="load">
+        <el-radio-button :value="1">{{ t('metrics.rangeToday') }}</el-radio-button>
+        <el-radio-button :value="7">{{ t('metrics.range7') }}</el-radio-button>
+        <el-radio-button :value="30">{{ t('metrics.range30') }}</el-radio-button>
+        <el-radio-button :value="0">{{ t('metrics.rangeAll') }}</el-radio-button>
+      </el-radio-group>
+    </div>
     <el-alert v-if="err" :title="err" type="error" show-icon :closable="false" class="mb" />
 
     <!-- KPI：全部来自 /metrics 当前快照。网关没有历史时序接口，
@@ -108,6 +118,8 @@ const router = useRouter()
 const { t } = useI18n()
 const { resolved } = useTheme()
 const data = ref<any>({})
+// 指标口径：0=保留期内全部、1=今天、7=近7天、30=近30天
+const days = ref(0)
 const loading = ref(false)
 const err = ref('')
 // 运行时间的实时基准：uptimeAt = 上次拿到 /metrics 的时刻，nowTick = 本地每秒心跳。
@@ -118,7 +130,7 @@ async function load() {
   loading.value = true
   err.value = ''
   try {
-    data.value = await api('/metrics')
+    data.value = await api(`/metrics?days=${days.value}`)
     uptimeAt.value = Date.now()
   } catch (e: any) {
     if (e && e.status === 401) { router.push('/login'); return }
@@ -265,6 +277,7 @@ onUnmounted(() => { clearInterval(timer); clearInterval(tickTimer) })
 </script>
 
 <style scoped>
+.range-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .about-card { margin-top: var(--gap); padding: 12px 16px; }
 .about-line b { color: var(--text); }
 </style>

@@ -383,7 +383,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.15"
+VERSION = "2.9.16"
 
 app = FastAPI(
     title="API Gateway",
@@ -3068,7 +3068,7 @@ async def media_download(request: Request, url: str = "", filename: str = "",
 # ─────────────────────────────────────
 # GET /metrics + /metrics/prometheus（P1-3/8）
 # ─────────────────────────────────────
-def _usage_snapshot(account: str | None = None) -> dict:
+def _usage_snapshot(account: str | None = None, days: int = 0) -> dict:
     """指标快照（2026-10-23 起口径变化）。
 
     **调用数 / 供应商分布 / token / 耗时** 来自 SQLite（`api_calls`，保留 90 天）——
@@ -3080,7 +3080,8 @@ def _usage_snapshot(account: str | None = None) -> dict:
     base: dict = {"uptime_seconds": rt.get("uptime_seconds"),
                   "in_flight": rt.get("in_flight", 0),
                   "in_flight_peak": rt.get("in_flight_peak", 0)}
-    db = calllog.store.usage_snapshot(account=account) if calllog.store.enabled else {"enabled": False}
+    db = (calllog.store.usage_snapshot(account=account, days=days)
+          if calllog.store.enabled else {"enabled": False})
     if db.get("enabled"):
         base.update({"calls": db.get("calls") or {},
                      "providers": db.get("providers") or {},
@@ -3096,18 +3097,21 @@ def _usage_snapshot(account: str | None = None) -> dict:
 
 
 @app.get("/metrics")
-async def metrics(request: Request, _auth=Depends(require_auth)):
+async def metrics(request: Request, days: int = 0, _auth=Depends(require_auth)):
+    """指标快照。`days`：0=保留期内全部（默认）、1=今天、7=近 7 天……（2026-10-23 新增）。"""
     if not _cfg().server.metrics_enabled:
         raise HTTPException(404, "metrics 已禁用")
     # M5+: 普通账号只看自己名下调用产生的聚合，admin 看全局 + 熔断状态。
     # 2026-10-22（老板）：成员首页要看自己调用的次数统计，所以**不**把本端点收成仅管理员；
     #   按账号聚合的逻辑保持原样（全局字段的收敛在 /health 里做）。
+    d = max(0, int(days or 0))
     if request.state.role == "admin":
-        snap = _usage_snapshot()
+        snap = _usage_snapshot(days=d)
         snap["circuits"] = _circuits.statuses()  # P2-16 熔断状态
     else:
-        snap = _usage_snapshot(request.state.account)
+        snap = _usage_snapshot(request.state.account, days=d)
         snap["circuits"] = []
+    snap["days"] = d
     return snap
 
 

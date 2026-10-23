@@ -167,6 +167,11 @@ export default {
     snapshot: '实时快照',
     circuitCard: '连续失败会自动暂停，稍后自动恢复',
     byProvider: '按供应商调用（成功 / 失败）',
+    rangeLabel: '统计口径',
+    rangeToday: '今天',
+    range7: '近 7 天',
+    range30: '近 30 天',
+    rangeAll: '全部',
   },
   logs: {
     tabLive: '实时',

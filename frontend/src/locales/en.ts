@@ -167,6 +167,11 @@ export default {
     snapshot: 'Live snapshot',
     circuitCard: 'Auto-paused after repeated failures, auto-recovers shortly',
     byProvider: 'Calls by provider (success / fail)',
+    rangeLabel: 'Range',
+    rangeToday: 'Today',
+    range7: '7 days',
+    range30: '30 days',
+    rangeAll: 'All',
   },
   logs: {
     tabLive: 'Realtime',
