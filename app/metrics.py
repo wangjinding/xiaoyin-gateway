@@ -20,6 +20,8 @@ log = logging.getLogger("api-gateway.metrics")
 #   普通账号只看自己名下（会话 + 自己的 API Key）产生的记录，admin 看全部。
 ACCOUNT: ContextVar[str] = ContextVar("gw_account", default="anonymous")
 ROLE: ContextVar[str] = ContextVar("gw_role", default="member")
+# 2026-10-23 调用日志落地：请求级 rid 上下文，供 token 记账关联到具体那条日志
+RID: ContextVar[str] = ContextVar("gw_rid", default="")
 
 # M4: 按 rid 暂存请求体摘要（由 main.py 中间件写入）。AccessLog.add() 用它给每条日志
 #   附上「具体请求内容」，便于在日志页查看实际发了什么。有界缓存，防无界增长。
