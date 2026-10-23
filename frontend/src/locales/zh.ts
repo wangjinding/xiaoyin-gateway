@@ -258,6 +258,7 @@ export default {
     dlOk: '已开始下载',
     dlFail: '下载失败：{msg}',
     dlNoSrc: '这条记录还没有可下载的地址',
+    imgExpired: '链接已失效',
   },
   chat: {
     newChat: '新建对话',

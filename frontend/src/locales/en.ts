@@ -258,6 +258,7 @@ export default {
     dlOk: 'Download started',
     dlFail: 'Download failed: {msg}',
     dlNoSrc: 'This record has no downloadable URL yet',
+    imgExpired: 'Link expired',
   },
   chat: {
     newChat: 'New chat',

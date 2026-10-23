@@ -34,7 +34,11 @@
                   <div v-if="act(row.name).images.length" class="asset-grid">
                     <div v-for="im in act(row.name).images" :key="im.id" class="asset-cell">
                       <el-image :src="im.src" fit="cover" class="asset-thumb"
-                        :preview-src-list="act(row.name).images.map((x: any) => x.src).filter(Boolean)" :initial-index="0" preview-teleported />
+                        :preview-src-list="act(row.name).images.map((x: any) => x.src).filter(Boolean)" :initial-index="0" preview-teleported>
+                        <template #error>
+                          <div class="asset-thumb asset-fail">{{ t('users.imgExpired') }}</div>
+                        </template>
+                      </el-image>
                       <div class="asset-cap ellip3" :title="im.prompt">{{ im.prompt || '—' }}</div>
                       <div class="asset-meta code ellip">{{ im.served || im.model || '' }} · {{ fmtClock((im.ts || 0) / 1000) }}</div>
                       <!-- 管理员代下载他人资产：产物在跨域 CDN 上，直链 <a download> 不生效，
@@ -394,17 +398,33 @@ onMounted(load)
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden; word-break: break-all;
 }
-.asset-grid { display: flex; flex-wrap: wrap; gap: 12px; }
-.asset-cell { width: 150px; }
+/* 2026-10-23 修：原来 `.asset-cell { width: 150px }` 在 flex 里会被压扁（flex-shrink），
+   卡片内容（标题/元信息/下载按钮）互相压叠。改成 grid + min-width:0，宽度由栅格决定。 */
+.expand-row { padding: 12px 16px; }
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.asset-cell { min-width: 0; display: flex; flex-direction: column; }
 .asset-thumb {
-  width: 150px; height: 110px; border-radius: 8px; display: block;
+  width: 100%; aspect-ratio: 4 / 3; height: auto; border-radius: 8px; display: block;
   background: var(--chip); border: 1px solid var(--line); object-fit: cover;
 }
-.video-ph { display: flex; align-items: center; justify-content: center; }
-.asset-cap { margin-top: 4px; }
-.asset-meta { color: var(--muted-2); margin-top: 2px; }
+.asset-fail {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11.5px; color: var(--muted-2); text-align: center; padding: 0 6px;
+}
+.video-ph { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; }
+.asset-cap { margin-top: 6px; min-width: 0; }
+.asset-meta {
+  color: var(--muted-2); margin-top: 2px; min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* 下载按钮放卡片底部整行（与图像/视频页一致），不做缩略图上的浮层：手机端不会挤变形 */
-.asset-dl { width: 100%; margin-top: 6px; }
+.asset-dl { width: 100%; margin-top: auto; }
+.asset-cell .asset-dl { margin-top: 8px; }
 .dialog-f2 { margin-top: 12px; }
 .dialog-f2 + .hint { margin-top: 10px; }
 

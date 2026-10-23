@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-10-23 · 用户管理资产卡片的文字压叠修复（2.9.9 → 2.9.10）
+
+老板截图反馈：用户管理展开账号后，图像/视频资产的「标题 / 模型·时间 / 下载按钮」全都压叠在一起。
+
+**根因**：`.asset-grid` 是 `display: flex` + `.asset-cell { width: 150px }` ——
+flex 子项默认 `flex-shrink: 1`，卡片被挤压后宽度趋近于 0，卡片内的文字与按钮就**互相压叠**。
+
+**修复**：
+- 栅格改成 `display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr))`，
+  宽度由栅格决定，不再依赖固定 px。
+- `.asset-cell` 加 `min-width: 0`（grid/flex 子项溢出压叠的经典解法）；
+  改成纵向 flex，下载按钮 `margin-top: auto` 贴底对齐。
+- 缩略图 `width: 100%; aspect-ratio: 4/3`（原来是固定 150×110）。
+- 元信息行 `overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%`。
+- **顺带修「加载失败」**：部分资产的 CDN 直链带过期签名（`?UCloudPublicKey=…`），
+  图源本身已失效 —— 给 `el-image` 加了 `#error` 插槽，显示「链接已失效」占位，
+  不再是一大块刺眼的「加载失败」。
+
 ## 2026-10-23 · 调用日志列表加「缓存命中」列（2.9.8 → 2.9.9）
 
 老板：「调用日志的命中缓存率为什么一直都是 0」。
