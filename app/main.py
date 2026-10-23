@@ -498,7 +498,7 @@ async def in_flight_tracker(request: Request, call_next):
     if rid:
         try:
             raw = await request.body()
-            BODY_BY_RID[rid] = raw[:2000].decode("utf-8", "replace")
+            BODY_BY_RID[rid] = raw[:8000].decode("utf-8", "replace")
             if len(BODY_BY_RID) > 2 * _BODY_MAX:
                 BODY_BY_RID.clear()
         except Exception:
@@ -1639,7 +1639,7 @@ async def _passthrough(request: Request, protocol: str):
                  "model": model_in, "served": model_in, "provider": pkey,
                  "caller": caller, "ok": ok, "stream": False,
                  "response": _logsafe(_resp_text(data) if ok else _upstream_detail(
-                     json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else str(data)), 2000)})
+                     json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else str(data)), 8000)})
 
     if not ok:
         # 直传口径：上游的错误体**原样**回给客户端（错误文案也不翻译），只加一个
@@ -1684,7 +1684,7 @@ async def _passthrough_stream(request, rid, caller, protocol, adapter, cb,
         _access.add({"method": "POST", "kind": "chat", "path": f"/v1/{protocol}", "rid": rid,
                      "model": model_in, "served": model_in, "provider": pkey, "caller": caller,
                      "ok": False, "stream": True,
-                     "response": _logsafe(_upstream_detail(raw.decode("utf-8", "replace")), 2000)})
+                     "response": _logsafe(_upstream_detail(raw.decode("utf-8", "replace")), 8000)})
         return Response(content=raw, status_code=resp.status_code, media_type=ctype, headers=headers)
 
     scanner = _UsageScanner(protocol)
@@ -2039,7 +2039,7 @@ async def _chat_once(cfg, rid, caller, request, req, model_id, messages, tools):
     _access.add({"method": "POST", "kind": "chat", "path": "/v1/chat/completions", "rid": rid,
                  "model": req.model, "served": model_id, "provider": pkey,
                  "caller": caller, "ok": True, "stream": False,
-                 "response": _logsafe(_resp_text(result), 2000)})
+                 "response": _logsafe(_resp_text(result), 8000)})
     resp = {
         "id": result.get("id", "") or f"chatcmpl-{rid}", "object": "chat.completion",
         "created": int(time.time()), "model": req.model,
@@ -2167,7 +2167,7 @@ def _stream_response(request, req, model_id, messages, tools):
                 _access.add({"method": "POST", "kind": "chat", "path": "/v1/chat/completions", "rid": rid,
                              "model": req.model, "served": model_id, "provider": pkey,
                              "caller": caller, "ok": True, "stream": True,
-                             "response": _logsafe(_stream_log_text(resp_parts, reason_parts), 2000)})
+                             "response": _logsafe(_stream_log_text(resp_parts, reason_parts), 8000)})
                 # 功能 8: 流式末尾发一个 usage 块（累计自上游 chunks 的 usage，若有）
                 if stream_usage:
                     uf = {'id': f'chatcmpl-{rid}', 'object': 'chat.completion.chunk', 'created': int(time.time()),
@@ -2185,7 +2185,7 @@ def _stream_response(request, req, model_id, messages, tools):
                 _access.add({"method": "POST", "kind": "chat", "path": "/v1/chat/completions", "rid": rid,
                              "model": req.model, "served": model_id, "provider": pkey,
                              "caller": caller, "ok": False, "stream": True, "error": str(e)[:200],
-                             "response": _logsafe(_stream_log_text(resp_parts, reason_parts), 2000)})
+                             "response": _logsafe(_stream_log_text(resp_parts, reason_parts), 8000)})
                 # 第六轮: 已向客户端输出过 content 时本来就无法回退（第二十七轮起更没有下一个
                 #   模型可退），统一发错误帧 + [DONE] 收尾，避免破坏已输出的 SSE 流。
                 yield f"data: {json.dumps({'error': str(e), 'served_model': model_id}, ensure_ascii=False)}\n\n"
