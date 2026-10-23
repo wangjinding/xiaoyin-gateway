@@ -17,6 +17,11 @@
       </el-select>
       <el-input v-model="kw" size="small" class="w200" clearable
         :placeholder="t('calllogs.keyword')" @keyup.enter="reload" />
+      <el-date-picker v-model="month" type="month" size="small" class="w140"
+        value-format="YYYY-MM" :placeholder="t('calllogs.usageMonth')" :clearable="false" />
+      <el-button size="small" @click="openUsage">
+        <Icon name="dash" :size="13" /><span>{{ t('calllogs.usageTitle') }}</span>
+      </el-button>
       <span class="spacer" />
       <el-button size="small" :loading="loading" @click="reload">
         <Icon name="refresh" :size="13" /><span>{{ t('common.refresh') }}</span>
@@ -69,6 +74,31 @@
         />
       </div>
     </div>
+
+    <!-- 月度用量弹窗：按账号聚合 -->
+    <el-dialog v-model="usageDlg" :title="t('calllogs.usageTitle')" width="760px" top="8vh">
+      <div class="card-h" style="margin-bottom: 8px">
+        <b>{{ usage.month || month }}</b>
+        <span class="sub">{{ t('calllogs.usageTotal', { n: usage.total_calls || 0 }) }}</span>
+        <span class="spacer" />
+        <el-button size="small" @click="exportUsage">
+          <Icon name="dl" :size="13" /><span>{{ t('common.export') }}</span>
+        </el-button>
+      </div>
+      <el-table :data="usage.items || []" size="small" max-height="420">
+        <el-table-column prop="account" :label="t('calllogs.colAccount')" min-width="120" />
+        <el-table-column prop="calls" :label="t('calllogs.colCalls')" width="90" />
+        <el-table-column prop="ok" :label="t('calllogs.colOk')" width="80" />
+        <el-table-column prop="fail" :label="t('calllogs.colFail')" width="80" />
+        <el-table-column :label="t('calllogs.colFailRate')" width="100">
+          <template #default="{ row }">{{ row.calls ? (row.fail / row.calls * 100).toFixed(1) + '%' : '—' }}</template>
+        </el-table-column>
+        <el-table-column :label="t('calllogs.colLatency')" width="100">
+          <template #default="{ row }">{{ row.avg_ms }}ms</template>
+        </el-table-column>
+        <el-table-column prop="models" :label="t('calllogs.colModels')" width="90" />
+      </el-table>
+    </el-dialog>
 
     <!-- 详情弹窗：完整提示词 + 回复 -->
     <el-dialog v-model="dlg" :title="t('calllogs.detailTitle')" width="860px" top="6vh">
@@ -124,6 +154,37 @@ const kw = ref('')
 
 const dlg = ref(false)
 const detail = ref<any>(null)
+
+// 月度用量（按账号聚合）
+const month = ref(new Date().toISOString().slice(0, 7))
+const usageDlg = ref(false)
+const usage = ref<any>({})
+
+async function openUsage() {
+  usageDlg.value = true
+  try {
+    usage.value = await api(`/logs/usage/monthly?month=${month.value}`)
+  } catch {
+    usage.value = { items: [] }
+  }
+}
+
+async function exportUsage() {
+  const resp = await fetch(`/logs/usage/monthly/export?month=${month.value}`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  })
+  if (!resp.ok) return
+  const blob = await resp.blob()
+  const href = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = `usage-${month.value}.csv`
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(href), 10_000)
+}
 
 const failCount = computed(() => rows.value.filter((r) => !r.ok).length)
 const avgMs = computed(() => {

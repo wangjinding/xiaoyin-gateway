@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## 2026-10-23 · 指标改由数据库提供（重启不再清零）+ 月度用量导出（2.8.0 → 2.9.0）
+
+老板：「全做」—— 指上一条列出的两项：① Dashboard 统计改从数据库读；② 按账号月度用量导出。
+
+### ① 指标数据源：内存 → SQLite
+- 新增 `_usage_snapshot()`：**调用数 / 供应商分布 / token / 耗时（含 p50/p95）** 全部改为从
+  `api_calls` 聚合（保留期内 90 天），**进程重启不再清零**；**运行时长 / 在途请求 / 熔断状态**
+  仍是进程内实时值。库不可用时自动回落到内存态（行为与之前一致）。
+- 影响端点：`GET /metrics`、`GET /metrics/prometheus`、`GET /health` 的 `models` 字段。
+- **口径变化（重要）**：Dashboard / 指标页看到的数字从「本次进程启动以来」变成「最近 90 天累计」，
+  所以数字会一次变大。要"本次启动以来"的口径需要另加参数，目前没有。
+- 成员视角不变：仍只聚合自己的账号（`account` 过滤）。
+
+### ② token 也落库了
+此前 `api_calls` 没存 token（方案里列了但首版没实现），导致指标切库后 token 只能是 0。
+本轮补齐：
+- 表加 4 列 `tok_prompt / tok_completion / tok_cached / tok_reasoning`，**老库自动 ALTER 迁移**。
+- 用 **rid contextvar + token 侧信道** 把两处接起来：`_record_usage_metrics()` 只知道 token、
+  不知道 rid；中间件只知道 rid、不知道 token。现在中间件 `RID.set(rid)`，
+  记账时 `calllog.note_tokens(RID.get(), …)`，落库时按 rid 取走并清空。
+- 直传流式（`_UsageScanner`）那条路径也补了。
+
+### ③ 月度用量导出
+- `GET /logs/usage/monthly?month=YYYY-MM`：按账号聚合调用数 / 成功 / 失败 / 平均耗时 / 涉及模型数（仅管理员）。
+- `GET /logs/usage/monthly/export?month=YYYY-MM`：CSV（UTF-8 BOM，Excel 直接打开，含失败率）。
+- 前端：调用日志页加「月份选择 + 月度用量」按钮 → 弹窗显示按账号的表格 + 导出 CSV。
+
+### ④ 顺手修
+- 模型统计排除「无模型行」（匿名 401 的早失败补记）—— 否则 Dashboard 上会出现一个 `?` 模型。
+
 ## 2026-10-23 · 调用日志落地（SQLite / 90 天 / 仅管理员可查全部）（2.7.3 → 2.8.0）
 
 老板：「ai网关项目，现在我想把调用日志落地，有什么方案」→ 方案确认后：「1，要记 / 2，90天 /

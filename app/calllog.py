@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS api_calls (
     ua             TEXT,
     prompt         TEXT,
     completion     TEXT,
+    tok_prompt     INTEGER DEFAULT 0,
+    tok_completion INTEGER DEFAULT 0,
+    tok_cached     INTEGER DEFAULT 0,
+    tok_reasoning  INTEGER DEFAULT 0,
     ver            TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_calls_ts      ON api_calls(ts);
@@ -81,7 +85,8 @@ CREATE INDEX IF NOT EXISTS idx_calls_rid     ON api_calls(rid);
 
 _COLUMNS = ("ts", "rid", "account", "key_id", "kind", "method", "path", "model",
             "served", "provider", "caller", "stream", "ok", "status", "latency_ms",
-            "ip", "ua", "prompt", "completion", "ver")
+            "ip", "ua", "prompt", "completion",
+            "tok_prompt", "tok_completion", "tok_cached", "tok_reasoning", "ver")
 
 _INSERT = f"INSERT INTO api_calls ({', '.join(_COLUMNS)}) VALUES ({', '.join('?' * len(_COLUMNS))})"
 
@@ -124,6 +129,7 @@ class CallLogStore:
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=NORMAL")
         db.executescript(SCHEMA)
+        self._migrate(db)
         db.commit()
         try:
             os.chmod(self.path, 0o600)
@@ -132,6 +138,15 @@ class CallLogStore:
         self._db = db
         log.info("调用日志已就绪: %s（保留 %d 天）", self.path, self.retention_days)
         self.cleanup()
+
+    @staticmethod
+    def _migrate(db: sqlite3.Connection) -> None:
+        """轻量迁移：老库缺 token 列时补上（2026-10-23 加）。"""
+        have = {r[1] for r in db.execute("PRAGMA table_info(api_calls)")}
+        for col in ("tok_prompt", "tok_completion", "tok_cached", "tok_reasoning"):
+            if col not in have:
+                db.execute(f"ALTER TABLE api_calls ADD COLUMN {col} INTEGER DEFAULT 0")
+                log.info("调用日志表已补列: %s", col)
 
     async def start(self) -> None:
         self.open()
@@ -353,6 +368,94 @@ class CallLogStore:
         out["queued"] = len(self._q)
         return out
 
+    # ── 聚合（供 /metrics、/health、月度用量导出使用）────────────────────
+    def usage_snapshot(self, *, account: str | None = None, days: int = 0) -> dict[str, Any]:
+        """按模型/供应商/账号聚合调用数、耗时与 token（形状对齐内存态 `Metrics.snapshot()`）。
+
+        account 非空 → 只算该账号（成员视角）；days=0 → 不限时间（用库内全部，即保留期内）。
+        """
+        if not self.enabled or self._db is None:
+            return {"enabled": False}
+        since = time.time() - days * 86400 if days and days > 0 else 0
+        conds: list[str] = []
+        params: list[Any] = []
+        if since:
+            conds.append("ts >= ?")
+            params.append(since)
+        if account:
+            conds.append("account = ?")
+            params.append(account)
+        where = (" WHERE " + " AND ".join(conds)) if conds else ""
+        try:
+            with self._lock:
+                mcond = f"{where} AND model IS NOT NULL" if where else " WHERE model IS NOT NULL"
+                calls = {r[0]: {"ok": r[1] or 0, "fail": r[2] or 0}
+                         for r in self._db.execute(
+                             f"SELECT model, SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END), "
+                             f"SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) "
+                             f"FROM api_calls{mcond} GROUP BY model", params)}
+                pcond = f"{where} AND provider IS NOT NULL" if where else " WHERE provider IS NOT NULL"
+                providers = {r[0] or "?": {"ok": r[1] or 0, "fail": r[2] or 0}
+                             for r in self._db.execute(
+                                 f"SELECT provider, SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END), "
+                                 f"SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) "
+                                 f"FROM api_calls{pcond} GROUP BY provider", params)}
+                latency: dict[str, Any] = {}
+                lcond = (f"{where} AND " if where else " WHERE ") + "model IS NOT NULL AND latency_ms IS NOT NULL"
+                for r in self._db.execute(
+                        f"SELECT model, COUNT(*), AVG(latency_ms) FROM api_calls{lcond} GROUP BY model",
+                        params):
+                    latency[r[0]] = {"count": r[1], "avg": round(r[2] or 0, 3)}
+                # p50 / p95：表很小，用 offset 取分位值
+                for mid, d in list(latency.items()):
+                    for key, frac in (("p50", 0.5), ("p95", 0.95)):
+                        off = max(0, int((d["count"] - 1) * frac))
+                        c2 = (f"{where} AND " if where else " WHERE ") + "model IS ? AND latency_ms IS NOT NULL"
+                        row = self._db.execute(
+                            f"SELECT latency_ms FROM api_calls{c2} ORDER BY latency_ms LIMIT 1 OFFSET ?",
+                            [*params, mid, off]).fetchone()
+                        d[key] = row[0] if row else None
+                tok = self._db.execute(
+                    f"SELECT COALESCE(SUM(tok_prompt),0), COALESCE(SUM(tok_completion),0), "
+                    f"COALESCE(SUM(tok_cached),0), COALESCE(SUM(tok_reasoning),0), COUNT(*) "
+                    f"FROM api_calls{where}", params).fetchone()
+        except Exception as e:  # noqa: BLE001
+            log.warning("用量聚合失败: %s", e)
+            return {"enabled": False, "error": str(e)}
+        return {"enabled": True, "calls": calls, "providers": providers, "latency": latency,
+                "tokens": {"prompt": tok[0], "completion": tok[1],
+                           "cached": tok[2], "reasoning": tok[3]},
+                "total": tok[4], "since": since}
+
+    def usage_monthly(self, month: str | None = None) -> dict[str, Any]:
+        """按月统计每个账号的用量（调用数 / 成功失败 / 平均耗时 / 内容字节 / token 不提供）。"""
+        if not self.enabled or self._db is None:
+            return {"enabled": False, "month": month, "items": []}
+        if not month:
+            month = time.strftime("%Y-%m")
+        try:
+            start = time.mktime(time.strptime(month + "-01", "%Y-%m-%d"))
+        except ValueError:
+            return {"enabled": False, "month": month, "error": "月份格式应为 YYYY-MM", "items": []}
+        # 下月 1 号
+        y, m = int(month[:4]), int(month[5:7])
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = time.mktime(time.strptime(f"{ny:04d}-{nm:02d}-01", "%Y-%m-%d"))
+        try:
+            with self._lock:
+                rows = self._db.execute(
+                    "SELECT account, COUNT(*), SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END), AVG(latency_ms), "
+                    "COUNT(DISTINCT model) FROM api_calls WHERE ts >= ? AND ts < ? "
+                    "GROUP BY account ORDER BY COUNT(*) DESC", (start, end)).fetchall()
+        except Exception as e:  # noqa: BLE001
+            return {"enabled": False, "month": month, "error": str(e), "items": []}
+        items = [{"account": r[0] or "anonymous", "calls": r[1] or 0, "ok": r[2] or 0,
+                  "fail": r[3] or 0, "avg_ms": round(r[4], 1) if r[4] else 0,
+                  "models": r[5] or 0} for r in rows]
+        return {"enabled": True, "month": month, "items": items,
+                "total_calls": sum(i["calls"] for i in items)}
+
     def export_rows(self, **kw: Any) -> list[dict[str, Any]]:
         """导出用：不带分页，最多 50000 条。"""
         kw.setdefault("limit", 50000)
@@ -387,6 +490,12 @@ def _trim(d: dict[str, dict]) -> None:
 
 
 def _row(entry: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    rid = str(entry.get("rid") or meta.get("rid") or "")
+    tok = entry.get("tokens")
+    if not tok and rid:
+        with _tok_lock:
+            tok = TOKENS_BY_RID.pop(rid, None)
+    tok = tok or {}
     return {
         "ts": entry.get("ts") or time.time(),
         "rid": entry.get("rid") or meta.get("rid"),
@@ -406,9 +515,37 @@ def _row(entry: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
         "ip": meta.get("ip", ""),
         "ua": _clip(meta.get("ua", ""), 200),
         "prompt": _clip(entry.get("body"), CONTENT_MAX),
+        "tok_prompt": int(tok.get("prompt_tokens") or 0),
+        "tok_completion": int(tok.get("completion_tokens") or 0),
+        "tok_cached": int(tok.get("cached_tokens") or 0),
+        "tok_reasoning": int(tok.get("reasoning_tokens") or 0),
         "completion": _clip(entry.get("response"), CONTENT_MAX),
         "ver": meta.get("ver", ""),
     }
+
+
+# token 侧信道：`_record_usage_metrics()` 只知道 token、不知道 rid；请求中间件只知道 rid、
+#   不知道 token。用一个按 rid 索引的小字典把两半接起来（AccessLog.add 落库时取走并清空）。
+TOKENS_BY_RID: dict[str, dict[str, int]] = {}
+_tok_lock = threading.Lock()
+_TOK_MAX = 2000
+
+
+def note_tokens(rid: str, prompt: int, completion: int,
+                cached: int = 0, reasoning: int = 0) -> None:
+    """记下某次请求的 token 用量（由 `_record_usage_metrics` 调用）。"""
+    if not store.enabled or not rid:
+        return
+    with _tok_lock:
+        TOKENS_BY_RID[rid] = {"prompt_tokens": int(prompt or 0),
+                              "completion_tokens": int(completion or 0),
+                              "cached_tokens": int(cached or 0),
+                              "reasoning_tokens": int(reasoning or 0)}
+        while len(TOKENS_BY_RID) > _TOK_MAX:
+            try:
+                TOKENS_BY_RID.pop(next(iter(TOKENS_BY_RID)), None)
+            except (StopIteration, KeyError):
+                break
 
 
 def on_access(entry: dict[str, Any]) -> None:

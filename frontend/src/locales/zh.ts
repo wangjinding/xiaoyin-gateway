@@ -229,6 +229,14 @@ export default {
     prompt: '提示词（请求体，截断记录）',
     completion: '回复（截断记录）',
     loading: '加载中…',
+    usageTitle: '月度用量',
+    usageMonth: '选择月份',
+    usageTotal: '本月共 {n} 次调用',
+    colCalls: '调用数',
+    colOk: '成功',
+    colFail: '失败',
+    colFailRate: '失败率',
+    colModels: '模型数',
   },
 
   users: {

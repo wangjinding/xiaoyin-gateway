@@ -45,7 +45,7 @@ from app.config import (ConfigError, GatewayConfig, load_config, validate_warnin
                         PROTOCOL_CHAT, PROTOCOL_MESSAGES, PROTOCOL_RESPONSES, PROTOCOLS,
                         ALIAS_PROTOCOLS)
 from app import calllog
-from app.metrics import (Metrics, AccessLog, RateLimiter, BODY_BY_RID, _BODY_MAX,
+from app.metrics import (Metrics, AccessLog, RateLimiter, BODY_BY_RID, RID, _BODY_MAX,
                          video_poll_push, video_polls,
                          ACCOUNT, ROLE)
 from app.models import (ChatRequest, ImageRequest, VideoCreateRequestExtended, BatchRequest,
@@ -351,7 +351,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 
 app = FastAPI(
     title="API Gateway",
@@ -606,6 +606,7 @@ def _flush_calllog(request: Request, rid: str, status: int, latency_ms: float,
 async def add_request_id(request: Request, call_next):
     rid = _sanitize_rid(request.headers.get("X-Request-ID")) or str(uuid.uuid4())
     request.state.rid = rid
+    RID.set(rid)          # 2026-10-23：token 记账靠这个 rid 关联到调用日志那条记录
     t0 = time.perf_counter()
     status = 500
     is_stream = False
@@ -1441,6 +1442,11 @@ def _record_usage_metrics(usage) -> None:
     p, c, cached, reasoning = _usage_detail(usage)
     if p or c or cached or reasoning:
         _metrics.record_tokens(p, c, cached=cached, reasoning=reasoning)
+        # 2026-10-23：同时告诉调用日志（按 rid 暂存，落库时带上 token 数）
+        try:
+            calllog.note_tokens(RID.get(), p, c, cached=cached, reasoning=reasoning)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class _UsageScanner:
@@ -1711,6 +1717,12 @@ async def _passthrough_stream(request, rid, caller, protocol, adapter, cb,
                 _metrics.record_tokens(counts["prompt_tokens"], counts["completion_tokens"],
                                        cached=counts["cached_tokens"],
                                        reasoning=counts["reasoning_tokens"])
+                try:
+                    calllog.note_tokens(RID.get(), counts["prompt_tokens"], counts["completion_tokens"],
+                                        cached=counts["cached_tokens"],
+                                        reasoning=counts["reasoning_tokens"])
+                except Exception:  # noqa: BLE001
+                    pass
             _access.add({"method": "POST", "kind": "chat", "path": f"/v1/{protocol}", "rid": rid,
                          "model": model_in, "served": model_in, "provider": pkey,
                          "caller": caller, "ok": ok, "stream": True, "response": ""})
@@ -2993,6 +3005,33 @@ async def media_download(request: Request, url: str = "", filename: str = "",
 # ─────────────────────────────────────
 # GET /metrics + /metrics/prometheus（P1-3/8）
 # ─────────────────────────────────────
+def _usage_snapshot(account: str | None = None) -> dict:
+    """指标快照（2026-10-23 起口径变化）。
+
+    **调用数 / 供应商分布 / token / 耗时** 来自 SQLite（`api_calls`，保留 90 天）——
+    所以**重启不再清零**，Dashboard 看到的是历史累计；
+    **运行时长 / 在途请求** 仍是进程内实时值（DB 里没有意义）。
+    库不可用时自动回落到内存态，行为与之前一致。
+    """
+    rt = _metrics.snapshot()
+    base: dict = {"uptime_seconds": rt.get("uptime_seconds"),
+                  "in_flight": rt.get("in_flight", 0),
+                  "in_flight_peak": rt.get("in_flight_peak", 0)}
+    db = calllog.store.usage_snapshot(account=account) if calllog.store.enabled else {"enabled": False}
+    if db.get("enabled"):
+        base.update({"calls": db.get("calls") or {},
+                     "providers": db.get("providers") or {},
+                     "tokens": db.get("tokens") or {},
+                     "latency": db.get("latency") or {},
+                     "total_calls": db.get("total", 0),
+                     "source": "db"})
+    else:
+        mem = _metrics.snapshot(account)
+        base.update({k: mem.get(k) for k in ("calls", "providers", "tokens", "latency") if k in mem})
+        base["source"] = "memory"
+    return base
+
+
 @app.get("/metrics")
 async def metrics(request: Request, _auth=Depends(require_auth)):
     if not _cfg().server.metrics_enabled:
@@ -3001,10 +3040,10 @@ async def metrics(request: Request, _auth=Depends(require_auth)):
     # 2026-10-22（老板）：成员首页要看自己调用的次数统计，所以**不**把本端点收成仅管理员；
     #   按账号聚合的逻辑保持原样（全局字段的收敛在 /health 里做）。
     if request.state.role == "admin":
-        snap = _metrics.snapshot()
+        snap = _usage_snapshot()
         snap["circuits"] = _circuits.statuses()  # P2-16 熔断状态
     else:
-        snap = _metrics.snapshot(request.state.account)
+        snap = _usage_snapshot(request.state.account)
         snap["circuits"] = []
     return snap
 
@@ -3025,7 +3064,7 @@ async def metrics_prometheus(request: Request, _auth=Depends(require_auth)):
         raise HTTPException(403, "仅管理员可抓取指标")
     if not _cfg().server.metrics_enabled:
         raise HTTPException(404, "metrics 已禁用")
-    snap = _metrics.snapshot()
+    snap = _usage_snapshot()
     lines = [
         "# API Gateway Prometheus 指标",
         f'api_gateway_uptime_seconds {snap["uptime_seconds"]}',
@@ -3201,6 +3240,36 @@ async def logs_calls(request: Request, start: str | None = None, end: str | None
     return calllog.store.query(start=_as_ts(start), end=_as_ts(end), account=account,
                                model=model, ok=ok, status=status, kind=kind, q=q,
                                limit=limit, offset=offset, with_content=bool(content))
+
+
+@app.get("/logs/usage/monthly")
+async def logs_usage_monthly(request: Request, month: str | None = None,
+                             _auth=Depends(require_auth)):
+    """按月统计每个账号的用量（调用数/成功失败/平均耗时/覆盖模型数）。仅管理员。"""
+    _require_admin_logs(request)
+    return calllog.store.usage_monthly(month)
+
+
+@app.get("/logs/usage/monthly/export")
+async def logs_usage_monthly_export(request: Request, month: str | None = None,
+                                    _auth=Depends(require_auth)):
+    """月度用量 CSV 导出（按账号一行）。仅管理员。"""
+    _require_admin_logs(request)
+    data = calllog.store.usage_monthly(month)
+    if not data.get("enabled", True) and data.get("error"):
+        raise HTTPException(400, data["error"])
+    import csv as _csv
+    import io as _io
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["月份", "账号", "调用数", "成功", "失败", "失败率", "平均耗时ms", "涉及模型数"])
+    for it in data.get("items", []):
+        rate = f'{it["fail"] / it["calls"] * 100:.1f}%' if it.get("calls") else "-"
+        w.writerow([data.get("month"), it.get("account"), it.get("calls"), it.get("ok"),
+                    it.get("fail"), rate, it.get("avg_ms"), it.get("models")])
+    fname = f"usage-{data.get('month')}.csv"
+    return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.get("/logs/calls/{call_id}")
@@ -3930,7 +3999,7 @@ async def health(request: Request, _auth=Depends(require_auth_or_open)):
     if not getattr(request.state, "health_authed", False):
         return {"status": "ok"}
     cfg = _cfg()
-    snap = _metrics.snapshot() if cfg.server.metrics_enabled else {}
+    snap = _usage_snapshot() if cfg.server.metrics_enabled else {}
     # 2026-10-22（老板）：成员首页需要"运行时长 / 并发 / 供应商列表"这些运行态，
     #   但**全局** token 总量、各模型的全局调用量与失败率、供应商熔断状态属运维数据，
     #   只应收口给管理员（此前任何有效 Bearer 都能读到全站用量）。

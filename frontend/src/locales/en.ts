@@ -229,6 +229,14 @@ export default {
     prompt: 'Prompt (request body, truncated)',
     completion: 'Completion (truncated)',
     loading: 'Loading…',
+    usageTitle: 'Monthly usage',
+    usageMonth: 'Month',
+    usageTotal: '{n} calls this month',
+    colCalls: 'Calls',
+    colOk: 'OK',
+    colFail: 'Failed',
+    colFailRate: 'Fail rate',
+    colModels: 'Models',
   },
 
   users: {
