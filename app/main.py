@@ -355,7 +355,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.5"
+VERSION = "2.9.6"
 
 app = FastAPI(
     title="API Gateway",
@@ -3180,6 +3180,49 @@ def _logs_for_account(account: str, n: int = 200) -> list[dict]:
     rows = [e for e in tail
             if e.get("account") == account or e.get("caller") == account]
     return _attach_polls(rows)
+
+
+@app.get("/logs/recent")
+async def logs_recent(request: Request, n: int = 200, _auth=Depends(require_auth)):
+    """「实时」页签的数据源（2026-10-23 起改为读库）。
+
+    原来 /logs 读的是内存环形缓冲（500 条，**重启即清**）。但每条调用其实都已经
+    落在 `api_calls` 里了，所以这里直接从库里取最近 N 条 —— **重启不再丢**，
+    且字段形状与 /logs 的条目保持一致（body/response/tokens 等），前端零改动即可渲染。
+    权限口径同 /logs：**只看自己的**（admin 也只看自己的；要看全站走 /logs/calls）。
+    """
+    me = request.state.account
+    n = max(1, min(int(n), 500))
+    rows = calllog.store.query(limit=n, offset=0, account=None, with_content=True)
+    items = []
+    for it in rows.get("items", []):
+        acct = it.get("account") or it.get("caller") or ""
+        if acct != me and (it.get("caller") or "") != me:
+            continue
+        items.append({
+            "ts": it.get("ts"),
+            "rid": it.get("rid"),
+            "account": acct,
+            "kind": it.get("kind"),
+            "method": it.get("method"),
+            "path": it.get("path"),
+            "model": it.get("model"),
+            "served": it.get("served"),
+            "provider": it.get("provider"),
+            "caller": it.get("caller"),
+            "ok": bool(it.get("ok")),
+            "stream": bool(it.get("stream")),
+            "status": it.get("status"),
+            "ms": it.get("latency_ms"),
+            "body": (it.get("prompt") or "")[:8000],
+            "response": (it.get("completion") or "")[:8000],
+            "tokens": {"prompt_tokens": it.get("tok_prompt") or 0,
+                       "completion_tokens": it.get("tok_completion") or 0,
+                       "cached_tokens": it.get("tok_cached") or 0,
+                       "reasoning_tokens": it.get("tok_reasoning") or 0},
+            "id": it.get("id"),
+        })
+    return {"entries": items, "source": "db"}
 
 
 @app.get("/logs")

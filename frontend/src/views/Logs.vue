@@ -201,7 +201,8 @@ async function load() {
         await api(`/v1/videos/${encodeURIComponent(e.video_id)}?model=${encodeURIComponent(e.served || e.model || '')}`)
       } catch { /* 轮询失败不打断刷新；后端会记为该次的失败快照 */ }
     }
-    const j = await api('/logs?n=200')
+    // 2026-10-23：改读库（/logs/recent）—— 内存环缓冲重启即丢，库里才是持久的
+    const j = await api('/logs/recent?n=200')
     entries.value = j.entries || []
     // 只保留仍存在的已展开行：行被顶出窗口/被删则对应 key 一并清掉
     const alive = new Set(entries.value.map(rowKey))

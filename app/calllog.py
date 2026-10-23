@@ -345,7 +345,8 @@ class CallLogStore:
         # 列表页也要「内容」列（2026-10-23 老板要求）：始终取 prompt 生成单行预览，
         #   但不把动辄几千字的原文整包吐给列表（with_content=1 才给完整 prompt/completion）。
         cols = ("id, ts, rid, account, key_id, kind, method, path, model, served, provider, "
-                "caller, stream, ok, status, latency_ms, ip, ua, ver, prompt")
+                "caller, stream, ok, status, latency_ms, ip, ua, ver, prompt, "
+                "tok_prompt, tok_completion, tok_cached, tok_reasoning")
         if with_content:
             cols += ", completion"
         limit = max(1, min(int(limit), 500))
