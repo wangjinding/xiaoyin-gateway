@@ -231,6 +231,33 @@ async def lifespan(app: FastAPI):
         await calllog.store.start()
     except Exception as e:  # noqa: BLE001
         log.warning("调用日志启动失败（不影响服务）: %s", e)
+    # 重启续跑：把上次没跑完的视频回调任务接回来（否则 callback_url 永远不会触发）
+    try:
+        jobs = calllog.store.pending_jobs()
+        if jobs:
+            log.info("恢复 %d 个未完成的视频回调任务", len(jobs))
+        for j in jobs:
+            pkey = j.get("provider") or ""
+            pconfig = config.providers.get(pkey)
+            if not pconfig:
+                calllog.store.finish_job(j["video_id"], "failed", "provider 已不存在")
+                continue
+
+            async def _resume_job(job=j, pc=pconfig, pk=pkey):
+                vid = job["video_id"]
+                try:
+                    await _video_wait_and_callback(
+                        config, pk, pc, pmodel_id=job.get("model"),
+                        video_id=vid, wait=True, wait_timeout=job.get("wait_timeout") or 900,
+                        callback_url=job.get("callback_url"), rid=(job.get("rid") or "resume"))
+                    calllog.store.finish_job(vid, "done")
+                except Exception as e:  # noqa: BLE001
+                    log.warning("续跑视频回调 %s 失败: %s", vid, e)
+                    calllog.store.finish_job(vid, "failed", str(e))
+
+            _spawn_bg(_resume_job(), name=f"video-resume-{j['video_id']}")
+    except Exception as e:  # noqa: BLE001
+        log.warning("恢复视频回调任务失败（不影响服务）: %s", e)
     yield
     # 关闭阶段：先停热重载，再等在途请求（uvicorn 自身也做，这里补逻辑日志）
     if hot_task:
@@ -356,7 +383,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.12"
+VERSION = "2.9.13"
 
 app = FastAPI(
     title="API Gateway",
@@ -2626,14 +2653,22 @@ async def videos_create(request: Request, req: VideoCreateRequestExtended, _auth
             #   就 `if not wait: return None` → **webhook 被静默丢弃、永不回调**，而 README 却把
             #   callback_url 描述成"异步通知"。现在丢到后台任务里轮询并在完成后回调，
             #   请求立即返回（async=true），语义与文档一致。
-            _spawn_bg(
-                _video_wait_and_callback(
-                    cfg, pkey, pconfig, pmodel_id=real_model, video_id=video_id,
-                    wait=True, wait_timeout=req.wait_timeout,
-                    callback_url=req.callback_url, rid=rid,
-                ),
-                name=f"video-callback-{video_id}",
-            )
+            # 2026-10-23：**先落库再派生** —— 进程重启后靠这张表续跑，否则回调永不触发
+            calllog.store.add_job(
+                video_id, provider=pkey, model=real_model, callback_url=req.callback_url,
+                rid=rid, account=request.state.account, wait_timeout=req.wait_timeout or 900)
+
+            async def _cb_job(vid=video_id):
+                try:
+                    return await _video_wait_and_callback(
+                        cfg, pkey, pconfig, pmodel_id=real_model, video_id=vid,
+                        wait=True, wait_timeout=req.wait_timeout,
+                        callback_url=req.callback_url, rid=rid,
+                    )
+                finally:
+                    calllog.store.finish_job(vid, "done")
+
+            _spawn_bg(_cb_job(), name=f"video-callback-{video_id}")
             resp["status"] = "submitted"
             resp["callback_scheduled"] = True
         # 第十轮: 视频日志带 video_id 与响应摘要；轮询数据由 /logs 按 video_id 合成进来
@@ -3186,12 +3221,36 @@ def _attach_polls(entries: list[dict]) -> list[dict]:
     return entries
 
 
-def _logs_for_account(account: str, n: int = 200) -> list[dict]:
-    """取某账号产生的访问日志（含轮询合成）。第十一轮 #2：admin 也走这里看别人。"""
-    tail = _access.tail(max(1, n))
-    rows = [e for e in tail
-            if e.get("account") == account or e.get("caller") == account]
-    return _attach_polls(rows)
+
+
+def _recent_entries(account: str, n: int = 200) -> list[dict]:
+    """从库里取某账号最近 N 条访问记录（形状与旧的内存 /logs 条目一致）。
+
+    2026-10-23：`/logs` 从内存环形缓冲改为读库 —— 重启不再丢（前端早已改走 /logs/recent，
+    这个函数是让遗留的 /logs 端点也保持一致）。
+    """
+    n = max(1, min(int(n), 500))
+    rows = calllog.store.query(limit=n, offset=0, with_content=True)
+    items = []
+    for it in rows.get("items", []):
+        acct = it.get("account") or it.get("caller") or ""
+        if acct != account and (it.get("caller") or "") != account:
+            continue
+        items.append({
+            "ts": it.get("ts"), "rid": it.get("rid"), "account": acct,
+            "kind": it.get("kind"), "method": it.get("method"), "path": it.get("path"),
+            "model": it.get("model"), "served": it.get("served"), "provider": it.get("provider"),
+            "caller": it.get("caller"), "ok": bool(it.get("ok")), "stream": bool(it.get("stream")),
+            "status": it.get("status"), "ms": it.get("latency_ms"),
+            "body": (it.get("prompt") or "")[:8000], "response": (it.get("completion") or "")[:8000],
+            "body_len": len(it.get("prompt") or ""), "resp_len": len(it.get("completion") or ""),
+            "tokens": {"prompt_tokens": it.get("tok_prompt") or 0,
+                       "completion_tokens": it.get("tok_completion") or 0,
+                       "cached_tokens": it.get("tok_cached") or 0,
+                       "reasoning_tokens": it.get("tok_reasoning") or 0},
+            "id": it.get("id"),
+        })
+    return _attach_polls(items)
 
 
 @app.get("/logs/entry/{call_id}")
@@ -3263,10 +3322,10 @@ async def logs_recent(request: Request, n: int = 200, _auth=Depends(require_auth
 
 @app.get("/logs")
 async def logs(request: Request, n: int = 100, _auth=Depends(require_auth)):
-    # 第十一轮 #2：日志页对**所有人（含 admin）都只显示自己的**。
+    # 2026-10-23：改读库（原来读内存环形缓冲，重启即丢）。口径不变：**只看自己的**。
     # 要看别人的调用日志 → 「日志 → 调用日志」页签（/logs/calls，仅管理员）；
     # 要看别人的资产 → 用户管理页的 /auth/users/{name}/history/{kind}。
-    return {"entries": _logs_for_account(request.state.account, n)}
+    return {"entries": _recent_entries(request.state.account, n), "source": "db"}
 
 
 # ─────────────────────────────────────

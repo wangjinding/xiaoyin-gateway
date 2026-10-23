@@ -93,6 +93,22 @@ CREATE TABLE IF NOT EXISTS video_polls (
     raw      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vp_vid ON video_polls(video_id, ts);
+
+-- 待回调的视频任务（2026-10-23）：进程重启后要能续跑，否则 callback_url 永远不会触发
+CREATE TABLE IF NOT EXISTS video_jobs (
+    video_id     TEXT PRIMARY KEY,
+    provider     TEXT,
+    model        TEXT,
+    callback_url TEXT,
+    rid          TEXT,
+    account      TEXT,
+    created      REAL,
+    status       TEXT DEFAULT 'pending',
+    wait_timeout INTEGER,
+    last_error   TEXT,
+    done_at      REAL
+);
+CREATE INDEX IF NOT EXISTS idx_vj_status ON video_jobs(status, created);
 """
 
 _COLUMNS = ("ts", "rid", "account", "key_id", "kind", "method", "path", "model",
@@ -300,6 +316,8 @@ class CallLogStore:
             with self._lock:
                 cur = self._db.execute("DELETE FROM api_calls WHERE ts < ?", (cutoff,))
                 self._db.execute("DELETE FROM video_polls WHERE ts < ?", (cutoff,))
+                self._db.execute("DELETE FROM video_jobs WHERE status != 'pending' AND done_at < ?",
+                                 (time.time() - 7 * 86400,))
                 self._db.commit()
             n = cur.rowcount or 0
             if n:
@@ -488,6 +506,56 @@ class CallLogStore:
         except Exception as e:  # noqa: BLE001
             log.warning("读取视频轮询失败: %s", e)
         return out
+
+    # ── 视频回调任务（2026-10-23：重启后续跑，避免 callback_url 永不触发）──────
+    def add_job(self, video_id: str, *, provider: str, model: str, callback_url: str,
+                rid: str = "", account: str = "", wait_timeout: int = 900) -> None:
+        if not self.enabled or self._db is None or not video_id:
+            return
+        try:
+            with self._lock:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO video_jobs "
+                    "(video_id, provider, model, callback_url, rid, account, created, status, wait_timeout) "
+                    "VALUES (?,?,?,?,?,?,?, 'pending', ?)",
+                    (video_id, provider, model, callback_url, rid, account, time.time(), int(wait_timeout)))
+                self._db.commit()
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"{type(e).__name__}: {e}"
+
+    def pending_jobs(self, max_age_s: float = 6 * 3600) -> list[dict[str, Any]]:
+        """取待续跑的回调任务（太老的判定为过期，不再续跑）。"""
+        if not self.enabled or self._db is None:
+            return []
+        cutoff = time.time() - max_age_s
+        try:
+            with self._lock:
+                cur = self._db.execute(
+                    "SELECT video_id, provider, model, callback_url, rid, account, created, wait_timeout "
+                    "FROM video_jobs WHERE status = 'pending' AND created >= ? ORDER BY created ASC", (cutoff,))
+                rows = cur.fetchall()
+                names = [d[0] for d in cur.description]
+                # 太老的标记成 expired，避免每次启动都尝试
+                self._db.execute(
+                    "UPDATE video_jobs SET status='expired', done_at=? "
+                    "WHERE status='pending' AND created < ?", (time.time(), cutoff))
+                self._db.commit()
+        except Exception as e:  # noqa: BLE001
+            log.warning("读取待续跑视频任务失败: %s", e)
+            return []
+        return [dict(zip(names, r)) for r in rows]
+
+    def finish_job(self, video_id: str, status: str = "done", error: str = "") -> None:
+        if not self.enabled or self._db is None or not video_id:
+            return
+        try:
+            with self._lock:
+                self._db.execute(
+                    "UPDATE video_jobs SET status=?, done_at=?, last_error=? WHERE video_id=?",
+                    (status, time.time(), _clip(error, 1000), video_id))
+                self._db.commit()
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"{type(e).__name__}: {e}"
 
     # ── 聚合（供 /metrics、/health、月度用量导出使用）────────────────────
     def usage_snapshot(self, *, account: str | None = None, days: int = 0) -> dict[str, Any]:
