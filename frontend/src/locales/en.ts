@@ -244,6 +244,7 @@ export default {
     colFailRate: 'Fail rate',
     colModels: 'Models',
     colContent: 'Content',
+    colCache: 'Cache hit',
   },
 
   users: {

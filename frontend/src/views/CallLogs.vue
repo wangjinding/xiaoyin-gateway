@@ -62,6 +62,16 @@
         <el-table-column :label="t('calllogs.colLatency')" width="92">
           <template #default="{ row }">{{ row.latency_ms != null ? row.latency_ms + 'ms' : '—' }}</template>
         </el-table-column>
+        <!-- 2026-10-23：缓存命中量与命中率（cached ÷ prompt） -->
+        <el-table-column :label="t('calllogs.colCache')" width="118">
+          <template #default="{ row }">
+            <span v-if="row.tok_prompt" :class="hitCls(row)">
+              {{ fmtTok(row.tok_cached) }}
+              <i class="hit-pct">{{ hitRate(row) }}%</i>
+            </span>
+            <span v-else class="muted-t">—</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('calllogs.colStatus')" width="84">
           <template #default="{ row }">
             <span :class="row.ok ? 'ok-t' : 'err-t'">{{ row.status ?? '—' }}</span>
@@ -272,6 +282,24 @@ async function exportCsv() {
   setTimeout(() => URL.revokeObjectURL(href), 10_000)
 }
 
+/** 缓存命中量：≥1000 用 k 缩写，便于表格窄列显示。 */
+function fmtTok(n: any): string {
+  const v = Number(n) || 0
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M'
+  if (v >= 1000) return (v / 1000).toFixed(1) + 'k'
+  return String(v)
+}
+/** 命中率 = tok_cached ÷ tok_prompt（0 保护）。 */
+function hitRate(row: any): number {
+  const p = Number(row.tok_prompt) || 0
+  const c = Number(row.tok_cached) || 0
+  return p > 0 ? Math.round((c / p) * 1000) / 10 : 0
+}
+function hitCls(row: any): string {
+  const r = hitRate(row)
+  return r >= 50 ? 'hit-good' : r > 0 ? 'hit-mid' : 'hit-none'
+}
+
 function rowCls({ row }: { row: any }) {
   return row.ok ? '' : 'row-fail'
 }
@@ -301,6 +329,10 @@ onMounted(loadPage)
 .pager-bar { display: flex; justify-content: flex-end; padding-top: 10px; }
 .sub { font-size: 11.5px; color: var(--muted-2); }
 .muted-t { color: var(--muted-2); }
+.hit-pct { font-style: normal; opacity: .75; font-size: 11px; margin-left: 3px; }
+.hit-good { color: var(--ok); font-variant-numeric: tabular-nums; }
+.hit-mid { color: #a97c00; font-variant-numeric: tabular-nums; }
+.hit-none { color: var(--muted-2); font-variant-numeric: tabular-nums; }
 .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; font-size: 12.5px; }
 .kv span { display: flex; gap: 6px; align-items: baseline; overflow: hidden; }
 .kv i { font-style: normal; color: var(--muted-2); min-width: 52px; }

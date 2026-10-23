@@ -244,6 +244,7 @@ export default {
     colFailRate: '失败率',
     colModels: '模型数',
     colContent: '内容',
+    colCache: '缓存命中',
   },
 
   users: {
