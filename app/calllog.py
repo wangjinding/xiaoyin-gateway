@@ -101,6 +101,60 @@ def _clip(v: Any, n: int = CONTENT_MAX) -> str:
     return s
 
 
+def prompt_preview(body: str | None, limit: int = 240) -> str:
+    """从请求体 JSON 里抽出「用户实际说的话」，给列表做一行预览。
+
+    兼容三种入站格式：
+      · OpenAI chat / responses: `messages[-1].content`（字符串或多段 text parts）、`input`
+      · Anthropic messages:      `messages[-1].content`（同上）
+      · 非 JSON / 解析失败:      退回原文前 limit 字（换行压成空格）
+    """
+    if not body:
+        return ""
+    try:
+        import json as _json
+        d = _json.loads(body)
+    except Exception:  # noqa: BLE001
+        return " ".join(str(body).split())[:limit]
+    text = ""
+    msgs = d.get("messages") if isinstance(d, dict) else None
+    if not isinstance(msgs, list) or not msgs:
+        msgs = d.get("input") if isinstance(d, dict) else None
+    if isinstance(msgs, list) and msgs:
+        last = msgs[-1]
+        if isinstance(last, dict):
+            c = last.get("content")
+            if isinstance(c, str):
+                text = c
+            elif isinstance(c, list):
+                parts = []
+                for p in c:
+                    if isinstance(p, dict):
+                        t = p.get("text") or p.get("input_text") or p.get("content")
+                        if isinstance(t, str):
+                            parts.append(t)
+                text = " ".join(parts)
+        elif isinstance(last, str):
+            text = last
+    if not text and isinstance(d, dict):
+        for k in ("prompt", "content", "text", "input"):
+            v = d.get(k)
+            if isinstance(v, str) and v:
+                text = v
+                break
+            if isinstance(v, list) and v:      # responses 线的 input 可能是消息数组
+                lastv = v[-1]
+                if isinstance(lastv, dict) and isinstance(lastv.get("content"), str):
+                    text = lastv["content"]
+                    break
+                if isinstance(lastv, str):
+                    text = lastv
+                    break
+    if not text:
+        text = body
+    return " ".join(str(text).split())[:limit]
+
+
 class CallLogStore:
     """SQLite 调用日志存储。线程安全的单写者 + 单读连接。"""
 
@@ -282,10 +336,12 @@ class CallLogStore:
             return {"total": 0, "items": [], "enabled": False}
         where, params = self._where(start=start, end=end, account=account, model=model,
                                     ok=ok, status=status, kind=kind, q=q)
+        # 列表页也要「内容」列（2026-10-23 老板要求）：始终取 prompt 生成单行预览，
+        #   但不把动辄几千字的原文整包吐给列表（with_content=1 才给完整 prompt/completion）。
         cols = ("id, ts, rid, account, key_id, kind, method, path, model, served, provider, "
-                "caller, stream, ok, status, latency_ms, ip, ua, ver")
+                "caller, stream, ok, status, latency_ms, ip, ua, ver, prompt")
         if with_content:
-            cols += ", prompt, completion"
+            cols += ", completion"
         limit = max(1, min(int(limit), 500))
         offset = max(0, int(offset))
         try:
@@ -303,6 +359,10 @@ class CallLogStore:
         for r in rows:
             d = dict(zip(names, r))
             d["ts_iso"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(d["ts"]))
+            raw_prompt = d.get("prompt") or ""
+            d["prompt_text"] = prompt_preview(raw_prompt)
+            if not with_content:
+                d.pop("prompt", None)      # 列表只给预览，不吐原文
             items.append(d)
         return {"total": total, "items": items, "limit": limit, "offset": offset}
 
@@ -320,6 +380,8 @@ class CallLogStore:
             return None
         d = dict(zip(names, row))
         d["ts_iso"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(d["ts"]))
+        # 详情也带一份「提取出的 content」，弹窗里第一屏就能看到用户说了什么
+        d["prompt_text"] = prompt_preview(d.get("prompt"))
         return d
 
     def stats(self, days: int = 7) -> dict[str, Any]:

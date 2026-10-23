@@ -237,6 +237,7 @@ export default {
     colFail: '失败',
     colFailRate: '失败率',
     colModels: '模型数',
+    colContent: '内容',
   },
 
   users: {

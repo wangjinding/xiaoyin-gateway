@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 2026-10-23 · 调用日志列表加「内容」列（2.9.0 → 2.9.1）
+
+老板：「列表的模型后面加一个字段，显示请求体的 content 内容」。
+
+- 新增 `prompt_preview()`：从请求体 JSON 里抽出**用户实际说的话**（不是整包 JSON）——
+  兼容 OpenAI chat / responses（`messages[-1].content`、`input` 字符串或数组）与
+  Anthropic messages（`content` 字符串或多段 text parts）；非 JSON 时退回原文。
+- `GET /logs/calls` 现在每行都返回 `prompt_text`（单行、压空白、截 240 字），
+  **列表不再吐原文 `prompt`**（几千字整包会拖慢列表）；`content=1` 时仍给完整原文。
+- `GET /logs/calls/{id}` 也带 `prompt_text`，详情弹窗第一屏就能看到用户说了什么。
+- 前端：模型列后面新增「内容」列（超长省略 + 悬停看全文）；详情弹窗增加「内容」块。
+
 ## 2026-10-23 · 指标改由数据库提供（重启不再清零）+ 月度用量导出（2.8.0 → 2.9.0）
 
 老板：「全做」—— 指上一条列出的两项：① Dashboard 统计改从数据库读；② 按账号月度用量导出。

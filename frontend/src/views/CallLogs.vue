@@ -53,6 +53,12 @@
             <span v-if="row.served && row.served !== row.model" class="sub"> → {{ row.served }}</span>
           </template>
         </el-table-column>
+        <!-- 2026-10-23 老板要求：模型后面加「内容」——显示请求体里 messages 的 content（单行预览） -->
+        <el-table-column :label="t('calllogs.colContent')" min-width="240" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span :class="{ 'muted-t': !row.prompt_text }">{{ row.prompt_text || '—' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('calllogs.colLatency')" width="92">
           <template #default="{ row }">{{ row.latency_ms != null ? row.latency_ms + 'ms' : '—' }}</template>
         </el-table-column>
@@ -116,6 +122,10 @@
           <span><i>UA</i>{{ detail.ua || '—' }}</span>
           <span><i>path</i>{{ detail.path || '—' }}</span>
           <span><i>ver</i>{{ detail.ver || '—' }}</span>
+        </div>
+        <div class="sec">
+          <label>{{ t('calllogs.colContent') }}</label>
+          <pre>{{ detail.prompt_text || '—' }}</pre>
         </div>
         <div class="sec">
           <label>{{ t('calllogs.prompt') }}</label>
@@ -282,6 +292,7 @@ onMounted(loadPage)
 .err-t { color: var(--err); font-weight: 600; font-variant-numeric: tabular-nums; }
 .pager-bar { display: flex; justify-content: flex-end; padding-top: 10px; }
 .sub { font-size: 11.5px; color: var(--muted-2); }
+.muted-t { color: var(--muted-2); }
 .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; font-size: 12.5px; }
 .kv span { display: flex; gap: 6px; align-items: baseline; overflow: hidden; }
 .kv i { font-style: normal; color: var(--muted-2); min-width: 52px; }

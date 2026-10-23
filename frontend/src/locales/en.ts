@@ -237,6 +237,7 @@ export default {
     colFail: 'Failed',
     colFailRate: 'Fail rate',
     colModels: 'Models',
+    colContent: 'Content',
   },
 
   users: {
