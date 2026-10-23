@@ -209,6 +209,8 @@ export default {
     tokReasoning: 'reasoning',
     cacheHit: 'cache hit',
     cacheHint: 'Cache misses are normal for the first request, short prompts, or changed prefixes',
+    loadingFull: 'Loading full content…',
+    fullLen: '{n} chars total',
   },
   calllogs: {
     title: 'Call log (persisted)',

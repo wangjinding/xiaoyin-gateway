@@ -100,8 +100,20 @@
                 <span class="tok-item tok-hit" :class="hitCls(row)" :title="t('logs.cacheHint')">{{ t('logs.cacheHit') }} <b>{{ hitRate(row) }}%</b></span>
               </div>
             </div>
-            <div class="detail-block"><label>{{ t('logs.request') }}</label><pre>{{ row.body || '—' }}</pre></div>
-            <div class="detail-block"><label>{{ t('logs.response') }}</label><pre>{{ row.response || '—' }}</pre></div>
+            <div class="detail-block">
+              <label>{{ t('logs.request') }}
+                <span v-if="row.fullLoading" class="sub"> · {{ t('logs.loadingFull') }}</span>
+                <span v-else-if="row.full && row.bodyLen" class="sub"> · {{ t('logs.fullLen', { n: row.bodyLen }) }}</span>
+                <span v-else-if="row.fullErr" class="err-text"> · {{ row.fullErr }}</span>
+              </label>
+              <pre>{{ row.body || '—' }}</pre>
+            </div>
+            <div class="detail-block">
+              <label>{{ t('logs.response') }}
+                <span v-if="row.full && row.respLen" class="sub"> · {{ t('logs.fullLen', { n: row.respLen }) }}</span>
+              </label>
+              <pre>{{ row.response || '—' }}</pre>
+            </div>
             <div class="detail-block" v-if="row.polls && row.polls.length">
               <label>{{ t('logs.polls', { n: row.polls.length }) }}</label>
               <el-timeline class="poll-timeline">
@@ -178,9 +190,29 @@ function isOpen(row: any): boolean {
 }
 function toggle(row: any) {
   const k = rowKey(row)
-  expandedKeys.value = expandedKeys.value.includes(k)
-    ? expandedKeys.value.filter((x) => x !== k)
-    : [...expandedKeys.value, k]
+  const opening = !expandedKeys.value.includes(k)
+  expandedKeys.value = opening
+    ? [...expandedKeys.value, k]
+    : expandedKeys.value.filter((x) => x !== k)
+  // 2026-10-23：列表只给前 8KB 预览，展开时按需取全文（详情不截断）
+  if (opening && row.id && !row.full) loadFull(row)
+}
+
+/** 展开时取这条日志的完整提示词与回复（不截断）。 */
+async function loadFull(row: any) {
+  row.fullLoading = true
+  try {
+    const d = await api(`/logs/entry/${row.id}`)
+    row.body = d.prompt || ''
+    row.response = d.completion || ''
+    row.bodyLen = d.prompt_len || 0
+    row.respLen = d.completion_len || 0
+    row.full = true
+  } catch (e: any) {
+    row.fullErr = err(e)
+  } finally {
+    row.fullLoading = false
+  }
 }
 
 // 视频快照是否已经有结论（有结论就不再主动追轮询）

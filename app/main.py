@@ -162,9 +162,10 @@ def _setup_logging() -> None:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 log = logging.getLogger("api-gateway")
 
-# 调用日志的内容上限（2026-10-23）：提示词/回复按此长度截断，默认 128KiB（≈32k tokens）。
-# 详情页要求「不截断」，实际上 128KiB 已覆盖绝大多数对话；要真的无限就把这个值调大。
-_CONTENT_MAX = int(__import__("os").environ.get("CALLLOG_BODY_MAX") or 131072)
+# 调用日志的内容上限（2026-10-23，2.9.12 再放宽）：默认 **4 MiB**（≈100 万 token 的文本）。
+# 老板要求「详情内容都不要截断」—— 4 MiB 对任何正常对话都等于不截断；
+# 内存占用靠下面的 BODY_BY_RID 条数上限（64 条在途）兜住，最坏 256 MiB、日常远低于此。
+_CONTENT_MAX = int(__import__("os").environ.get("CALLLOG_BODY_MAX") or 4194304)
 
 
 def _config_mtime() -> float:
@@ -355,7 +356,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.11"
+VERSION = "2.9.12"
 
 app = FastAPI(
     title="API Gateway",
@@ -504,7 +505,8 @@ async def in_flight_tracker(request: Request, call_next):
             raw = await request.body()
             # 调用日志要看完整提示词：放宽到 128KiB（≈32k tokens），并只保留最近 N 条
             BODY_BY_RID[rid] = raw[:_CONTENT_MAX].decode("utf-8", "replace")
-            if len(BODY_BY_RID) > 128:
+            # 上限放宽到 4MiB 后，条数收紧到 64（并发的在途请求远小于此），控住内存
+            if len(BODY_BY_RID) > 64:
                 BODY_BY_RID.clear()
         except Exception:
             BODY_BY_RID.pop(rid, None)
@@ -3192,6 +3194,26 @@ def _logs_for_account(account: str, n: int = 200) -> list[dict]:
     return _attach_polls(rows)
 
 
+@app.get("/logs/entry/{call_id}")
+async def logs_entry(call_id: int, request: Request, _auth=Depends(require_auth)):
+    """取某条日志的**完整**内容（提示词 + 回复，不截断）。
+
+    实时页签的列表为了轻量只给前 8KB 预览，展开时调这里拿全文。
+    权限：**本人的记录**或管理员；其他人一律 403。
+    """
+    row = calllog.store.get(call_id)
+    if not row:
+        raise HTTPException(404, f"日志不存在: {call_id}")
+    me = request.state.account
+    if getattr(request.state, "role", "") != "admin" and \
+            me not in (row.get("account"), row.get("caller")):
+        raise HTTPException(403, "无权查看他人的调用日志")
+    return {"id": row.get("id"), "prompt": row.get("prompt") or "",
+            "completion": row.get("completion") or "",
+            "prompt_len": len(row.get("prompt") or ""),
+            "completion_len": len(row.get("completion") or "")}
+
+
 @app.get("/logs/recent")
 async def logs_recent(request: Request, n: int = 200, _auth=Depends(require_auth)):
     """「实时」页签的数据源（2026-10-23 起改为读库）。
@@ -3224,8 +3246,12 @@ async def logs_recent(request: Request, n: int = 200, _auth=Depends(require_auth
             "stream": bool(it.get("stream")),
             "status": it.get("status"),
             "ms": it.get("latency_ms"),
+            # 列表只给前 8KB 预览（200 条 × 几百 KB 会拖垮接口）；
+            # 展开时前端调 GET /logs/entry/{id} 取完整内容（见该端点注释）
             "body": (it.get("prompt") or "")[:8000],
             "response": (it.get("completion") or "")[:8000],
+            "body_len": len(it.get("prompt") or ""),
+            "resp_len": len(it.get("completion") or ""),
             "tokens": {"prompt_tokens": it.get("tok_prompt") or 0,
                        "completion_tokens": it.get("tok_completion") or 0,
                        "cached_tokens": it.get("tok_cached") or 0,

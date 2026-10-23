@@ -19,7 +19,7 @@
 - `CALLLOG_DB`            默认 `data/calllog.db`
 - `CALLLOG_RETENTION_DAYS` 默认 90
 - `CALLLOG_QUEUE_MAX`      默认 10000
-- `CALLLOG_CONTENT_MAX`    默认 262144（=256KiB，提示词/回复各自上限；详情页不截断）
+- `CALLLOG_CONTENT_MAX`    默认 8388608（=8MiB，提示词/回复各自上限；详情页完整显示）
 - `CALLLOG_DISABLED=1`     整体关闭（不回退任何现有行为）
 """
 
@@ -40,7 +40,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.environ.get("CALLLOG_DB") or os.path.join(_ROOT, "data", "calllog.db")
 RETENTION_DAYS = int(os.environ.get("CALLLOG_RETENTION_DAYS") or 90)
 QUEUE_MAX = int(os.environ.get("CALLLOG_QUEUE_MAX") or 10000)
-CONTENT_MAX = int(os.environ.get("CALLLOG_CONTENT_MAX") or 262144)
+CONTENT_MAX = int(os.environ.get("CALLLOG_CONTENT_MAX") or 8388608)
 DISABLED = os.environ.get("CALLLOG_DISABLED", "") not in ("", "0", "false", "False")
 
 BATCH = 200                 # 攒够多少条提交一次

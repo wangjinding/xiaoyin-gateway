@@ -209,6 +209,8 @@ export default {
     tokReasoning: '推理',
     cacheHit: '缓存命中率',
     cacheHint: '首次请求、短提示词、或前缀有变化时，上游不会命中缓存，命中率为 0 属正常',
+    loadingFull: '正在加载完整内容…',
+    fullLen: '完整 {n} 字',
   },
   calllogs: {
     title: '调用日志（持久化）',
