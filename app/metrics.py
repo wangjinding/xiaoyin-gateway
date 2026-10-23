@@ -49,6 +49,12 @@ def video_poll_push(video_id: str, snap: dict) -> None:
             dq = deque(maxlen=_VP_MAX_POLLS)
             VIDEO_POLLS[video_id] = dq
         dq.append(snap)
+    # 2026-10-23：同时落库 —— 内存态重启即丢，库里才持久（日志页优先读库）
+    try:
+        from app import calllog as _calllog
+        _calllog.store.add_poll(video_id, snap)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def video_polls(video_id: str) -> list[dict]:

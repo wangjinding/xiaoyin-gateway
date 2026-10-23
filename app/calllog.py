@@ -81,6 +81,18 @@ CREATE INDEX IF NOT EXISTS idx_calls_model   ON api_calls(model, ts);
 CREATE INDEX IF NOT EXISTS idx_calls_ok      ON api_calls(ok, ts);
 CREATE INDEX IF NOT EXISTS idx_calls_status  ON api_calls(status, ts);
 CREATE INDEX IF NOT EXISTS idx_calls_rid     ON api_calls(rid);
+
+CREATE TABLE IF NOT EXISTS video_polls (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    ts       REAL NOT NULL,
+    status   TEXT,
+    progress REAL,
+    ok       INTEGER,
+    error    TEXT,
+    raw      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vp_vid ON video_polls(video_id, ts);
 """
 
 _COLUMNS = ("ts", "rid", "account", "key_id", "kind", "method", "path", "model",
@@ -287,6 +299,7 @@ class CallLogStore:
         try:
             with self._lock:
                 cur = self._db.execute("DELETE FROM api_calls WHERE ts < ?", (cutoff,))
+                self._db.execute("DELETE FROM video_polls WHERE ts < ?", (cutoff,))
                 self._db.commit()
             n = cur.rowcount or 0
             if n:
@@ -437,6 +450,43 @@ class CallLogStore:
         out["written"] = self.written
         out["dropped"] = self.dropped
         out["queued"] = len(self._q)
+        return out
+
+    # ── 视频轮询快照（2026-10-23 落库：重启后仍能看到轮询时间线）────────────
+    def add_poll(self, video_id: str, snap: dict[str, Any]) -> None:
+        """记一次视频轮询。直接落库（轮询频率低，单条 insert 足够）。"""
+        if not self.enabled or self._db is None or not video_id:
+            return
+        try:
+            with self._lock:
+                self._db.execute(
+                    "INSERT INTO video_polls (video_id, ts, status, progress, ok, error, raw) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (video_id, float(snap.get("ts") or time.time()),
+                     snap.get("status"), snap.get("progress"),
+                     1 if snap.get("ok") else 0,
+                     _clip(snap.get("error"), 2000), _clip(snap.get("raw"), 4000)))
+                self._db.commit()
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"{type(e).__name__}: {e}"
+
+    def polls_for(self, video_ids: list[str], max_per: int = 200) -> dict[str, list[dict[str, Any]]]:
+        """按 video_id 批量取轮询时间线（升序），供日志页合成展示。"""
+        if not self.enabled or self._db is None or not video_ids:
+            return {}
+        out: dict[str, list[dict[str, Any]]] = {}
+        try:
+            with self._lock:
+                for vid in {v for v in video_ids if v}:
+                    rows = self._db.execute(
+                        "SELECT ts, status, progress, ok, error, raw FROM video_polls "
+                        "WHERE video_id = ? ORDER BY ts ASC LIMIT ?", (vid, max_per)).fetchall()
+                    if rows:
+                        out[vid] = [{"ts": r[0], "status": r[1], "progress": r[2],
+                                     "ok": bool(r[3]), "error": r[4], "raw": r[5]}
+                                    for r in rows]
+        except Exception as e:  # noqa: BLE001
+            log.warning("读取视频轮询失败: %s", e)
         return out
 
     # ── 聚合（供 /metrics、/health、月度用量导出使用）────────────────────

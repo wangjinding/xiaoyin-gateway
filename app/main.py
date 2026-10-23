@@ -355,7 +355,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.7"
+VERSION = "2.9.8"
 
 app = FastAPI(
     title="API Gateway",
@@ -3162,15 +3162,25 @@ async def metrics_prometheus(request: Request, _auth=Depends(require_auth)):
 # GET /logs（P1-4）
 # ─────────────────────────────────────
 def _attach_polls(entries: list[dict]) -> list[dict]:
-    """给带 video_id 的创建日志按需附加内存里累积的轮询快照（第十一轮：轮询合成一条）。"""
+    """给带 video_id 的创建日志附加轮询快照（第十一轮：轮询合成一条）。
+
+    2026-10-23：轮询已落库 → **优先从库里取**（重启后仍可看）；库里没有才回落到内存态。
+    """
+    vids = [e.get("video_id") or e.get("served") for e in entries if e.get("kind") == "video"]
+    db = {}
+    try:
+        db = calllog.store.polls_for([v for v in vids if v])
+    except Exception:  # noqa: BLE001
+        db = {}
     for e in entries:
-        vid = e.get("video_id")
-        if vid:
-            e["video_id"] = vid
-            p = video_polls(vid)
-            if p:
-                e["polls"] = p
-                e.setdefault("poll_last", p[-1].get("status"))
+        vid = e.get("video_id") or (e.get("served") if e.get("kind") == "video" else None)
+        if not vid:
+            continue
+        e["video_id"] = vid
+        p = db.get(vid) or video_polls(vid)
+        if p:
+            e["polls"] = p
+            e.setdefault("poll_last", p[-1].get("status"))
     return entries
 
 
@@ -3222,7 +3232,7 @@ async def logs_recent(request: Request, n: int = 200, _auth=Depends(require_auth
                        "reasoning_tokens": it.get("tok_reasoning") or 0},
             "id": it.get("id"),
         })
-    return {"entries": items, "source": "db"}
+    return {"entries": _attach_polls(items), "source": "db"}
 
 
 @app.get("/logs")
