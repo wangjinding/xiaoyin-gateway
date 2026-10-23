@@ -107,7 +107,8 @@
     </el-dialog>
 
     <!-- 详情弹窗：完整提示词 + 回复 -->
-    <el-dialog v-model="dlg" :title="t('calllogs.detailTitle')" width="860px" top="6vh">
+    <el-dialog v-model="dlg" :title="t('calllogs.detailTitle')" width="880px" top="5vh"
+      class="calllog-dlg" :close-on-click-modal="true">
       <div v-if="detail" class="det">
         <div class="kv">
           <span><i>{{ t('calllogs.colTime') }}</i>{{ detail.ts_iso }}</span>
@@ -307,5 +308,50 @@ onMounted(loadPage)
 @media (max-width: 768px) {
   .kv { grid-template-columns: 1fr; }
   .w-range, .w140, .w170, .w120, .w200 { width: 100%; }
+}
+</style>
+
+<!-- 2026-10-23：详情弹窗「整体固定高度 + 内容区各自内部滚动」。
+     必须用**非 scoped** 样式：el-dialog 会 teleport 到 body，scoped 选择器命中不了。 -->
+<style>
+.calllog-dlg {
+  height: min(78vh, 860px);
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+.calllog-dlg .el-dialog__header { flex: 0 0 auto; }
+.calllog-dlg .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;            /* 关键：允许子项收缩，否则 flex 子项撑破容器 */
+  overflow: hidden;         /* 弹窗自身不出滚动条 */
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+}
+.calllog-dlg .det {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.calllog-dlg .det .kv { flex: 0 0 auto; }
+.calllog-dlg .det .sec {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+.calllog-dlg .det .sec label { flex: 0 0 auto; }
+.calllog-dlg .det .sec pre {
+  flex: 1 1 auto;
+  min-height: 90px;
+  max-height: none;         /* 覆盖 scoped 里的 460px，交给 flex 分配 */
+  overflow: auto;           /* 只有内容区自己有滚动条 */
+  margin: 4px 0 0;
+}
+@media (max-width: 768px) {
+  .calllog-dlg { height: 86vh; }
 }
 </style>
