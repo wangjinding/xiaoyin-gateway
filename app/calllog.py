@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS api_calls (
     served         TEXT,
     provider       TEXT,
     caller         TEXT,
+    video_id       TEXT,
     stream         INTEGER DEFAULT 0,
     ok             INTEGER DEFAULT 1,
     status         INTEGER,
@@ -112,7 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_vj_status ON video_jobs(status, created);
 """
 
 _COLUMNS = ("ts", "rid", "account", "key_id", "kind", "method", "path", "model",
-            "served", "provider", "caller", "stream", "ok", "status", "latency_ms",
+            "served", "provider", "caller", "video_id", "stream", "ok", "status", "latency_ms",
             "ip", "ua", "prompt", "completion",
             "tok_prompt", "tok_completion", "tok_cached", "tok_reasoning", "ver")
 
@@ -231,7 +232,7 @@ class CallLogStore:
     def _migrate(db: sqlite3.Connection) -> None:
         """轻量迁移：老库缺 token 列时补上（2026-10-23 加）。"""
         have = {r[1] for r in db.execute("PRAGMA table_info(api_calls)")}
-        for col in ("tok_prompt", "tok_completion", "tok_cached", "tok_reasoning"):
+        for col in ("tok_prompt", "tok_completion", "tok_cached", "tok_reasoning", "video_id"):
             if col not in have:
                 db.execute(f"ALTER TABLE api_calls ADD COLUMN {col} INTEGER DEFAULT 0")
                 log.info("调用日志表已补列: %s", col)
@@ -376,7 +377,7 @@ class CallLogStore:
         # 列表页也要「内容」列（2026-10-23 老板要求）：始终取 prompt 生成单行预览，
         #   但不把动辄几千字的原文整包吐给列表（with_content=1 才给完整 prompt/completion）。
         cols = ("id, ts, rid, account, key_id, kind, method, path, model, served, provider, "
-                "caller, stream, ok, status, latency_ms, ip, ua, ver, prompt, "
+                "caller, video_id, stream, ok, status, latency_ms, ip, ua, ver, prompt, "
                 "tok_prompt, tok_completion, tok_cached, tok_reasoning")
         if with_content:
             cols += ", completion"
@@ -697,6 +698,7 @@ def _row(entry: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
         "served": entry.get("served"),
         "provider": entry.get("provider"),
         "caller": entry.get("caller"),
+        "video_id": entry.get("video_id"),
         "stream": 1 if entry.get("stream") else 0,
         "ok": 1 if entry.get("ok") else 0,
         "status": meta.get("status"),

@@ -383,7 +383,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.13"
+VERSION = "2.9.14"
 
 app = FastAPI(
     title="API Gateway",
@@ -3242,6 +3242,9 @@ def _recent_entries(account: str, n: int = 200) -> list[dict]:
             "model": it.get("model"), "served": it.get("served"), "provider": it.get("provider"),
             "caller": it.get("caller"), "ok": bool(it.get("ok")), "stream": bool(it.get("stream")),
             "status": it.get("status"), "ms": it.get("latency_ms"),
+            # 视频条目：库里没有独立的 video_id 列，video_id 存在 served 上（与旧内存条目保持同名）
+            **({"video_id": it.get("video_id") or it.get("served")}
+               if it.get("kind") == "video" else {}),
             "body": (it.get("prompt") or "")[:8000], "response": (it.get("completion") or "")[:8000],
             "body_len": len(it.get("prompt") or ""), "resp_len": len(it.get("completion") or ""),
             "tokens": {"prompt_tokens": it.get("tok_prompt") or 0,

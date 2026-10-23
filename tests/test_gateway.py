@@ -288,7 +288,7 @@ def test_app_endpoints():
     # 每个模型都带 protocols（三线直传的能力声明）
     byid2 = {x["id"]: x for x in r2.json()["data"]}
     assert byid2["hy3"]["protocols"] == ["chat/completions"]
-    assert byid2["grok-4.6"]["protocols"] == ["responses"]
+    assert byid2["grok-4.7"]["protocols"] == ["responses"]
 
 
 # ── 根路径导航 ──
@@ -724,6 +724,7 @@ def test_logs_include_request_body():
             "messages": [{"role": "user", "content": "把这句话记进日志"}],
         })
         assert r.status_code == 200, r.text
+        m.calllog.store.flush()          # 日志异步批量写库，断言前先刷盘
         j = client.get("/logs?n=20").json()
         chats = [e for e in j["entries"] if e.get("path") == "/v1/chat/completions"]
         assert chats, "应有 chat 日志条目"
@@ -758,6 +759,7 @@ def test_logs_include_streaming_response():
         })
         assert r.status_code == 200, r.text
         assert "[DONE]" in r.text, r.text
+        m.calllog.store.flush()          # 日志异步批量写库，断言前先刷盘
         j = client.get("/logs?n=20").json()
         hit = [e for e in j["entries"]
                if e.get("path") == "/v1/chat/completions"
@@ -2286,6 +2288,7 @@ def test_video_polls_merged_into_one_log_row_with_response():
     vid = r.json()["video_id"]
     client.get(f"/v1/videos/{vid}", headers=ah)    # 第 1 次轮询 processing
     client.get(f"/v1/videos/{vid}", headers=ah)    # 第 2 次轮询 completed
+    m.calllog.store.flush()
     logs = client.get("/logs?n=200", headers=ah).json()["entries"]
     rows = [e for e in logs if e.get("video_id") == vid]
     assert len(rows) == 1, f"轮询应合成到创建那条里(实际 {len(rows)} 行): {[r['path'] for r in logs]}"
@@ -2303,6 +2306,7 @@ def test_video_polls_merged_into_one_log_row_with_response():
     r2 = client.post("/v1/images/generations", json={"model": "agnes-image-2.5-flash",
                                                      "prompt": "hi", "n": 1}, headers=ah)
     assert r2.status_code == 200, r2.text
+    m.calllog.store.flush()          # 日志异步批量写库，断言前先刷盘
     imgs = [e for e in client.get("/logs?n=200", headers=ah).json()["entries"]
             if e.get("path") == "/v1/images/generations"]
     assert imgs and "n" in (imgs[-1].get("response") or ""), imgs[-1].get("response")
@@ -2310,32 +2314,42 @@ def test_video_polls_merged_into_one_log_row_with_response():
 
 
 def test_logs_own_only_and_admin_per_user_view():
-    """第十一轮 #2：日志页对所有人只显示自己；admin 在用户管理端点看别人的日志与资产。"""
+    """第十一轮 #2 + 2026-10-23：/logs 只看自己的（现读库）；全站明细走 /logs/calls（仅管理员）。"""
     from fastapi.testclient import TestClient
+    import time as _t
     import app.main as m
     client = TestClient(m.app)
     ah = {"Authorization": f"Bearer {_login_admin_session(client)}"}
+    client.delete("/auth/users/bob2", headers=ah)      # 幂等：清掉上次失败可能残留的账号
     assert client.post("/auth/users", json={"username": "bob2"}, headers=ah).status_code == 200
     bob = client.post("/auth/login", json={"username": "bob2", "password": "bob2"}).json()["access_token"]
     bh = {"Authorization": f"Bearer {bob}"}
-    # 直接往访问日志塞一条属于 bob2 的记录（省去真打上游），并让 bob2 存一条图像资产
-    m._access.add({"method": "POST", "path": "/v1/chat/completions", "rid": "r-bob2",
-                   "account": "bob2", "caller": "bob2", "ok": True})
+    # 2026-10-23：/logs 改读库 —— 直接往调用日志里塞一条属于 bob2 的记录（省去真打上游）
+    m.calllog.store.stage({"ts": _t.time(), "rid": "r-bob2", "account": "bob2",
+                           "caller": "bob2", "kind": "chat", "method": "POST",
+                           "path": "/v1/chat/completions", "ok": 1, "stream": 0,
+                           "status": 200, "latency_ms": 1, "key_id": "", "ver": "test"})
+    m.calllog.store.flush()
     client.post("/history/images", json={"items": [{"id": "img1", "url": "http://x/1.png", "prompt": "p"}]}, headers=bh)
-    # ① admin 的 /logs 不再包含 bob2 的行（以前 admin 看全部）
+    # ① 成员自己的 /logs 能看到这条（口径：只看自己的）
+    bob_logs = client.get("/logs?n=500", headers=bh).json()["entries"]
+    assert any(e.get("rid") == "r-bob2" for e in bob_logs), "成员应看到自己的日志"
+    # ② admin 的 /logs 不包含 bob2 的行（admin 也只看自己的）
     admin_logs = client.get("/logs?n=500", headers=ah).json()["entries"]
     assert all(e.get("account") != "bob2" for e in admin_logs), "日志页 admin 不该看到别人"
-    # ② admin 专属：按用户查日志
-    r = client.get("/auth/users/bob2/logs?n=500", headers=ah)
-    assert r.status_code == 200 and any(e.get("rid") == "r-bob2" for e in r.json()["entries"])
-    # ③ admin 专属：按用户查图像资产
+    # ③ 全站明细：/logs/calls 仅管理员（成员 403）
+    r = client.get("/logs/calls?limit=500", headers=ah)
+    assert r.status_code == 200 and any(e.get("rid") == "r-bob2" for e in r.json()["items"])
+    assert client.get("/logs/calls", headers=bh).status_code == 403
+    # ④ 按用户查图像资产（admin 专属；成员 403；不存在账号 404；未知 kind 400）
     r2 = client.get("/auth/users/bob2/history/images", headers=ah)
     assert r2.status_code == 200 and any(i.get("id") == "img1" for i in r2.json()["items"])
-    # ④ 非 admin 不能用这些端点；⑤ 不存在账号 404
-    assert client.get("/auth/users/admin/logs", headers=bh).status_code == 403
     assert client.get("/auth/users/admin/history/videos", headers=bh).status_code == 403
-    assert client.get("/auth/users/ghost/logs", headers=ah).status_code == 404
+    assert client.get("/auth/users/ghost/history/images", headers=ah).status_code == 404
     assert client.get("/auth/users/bob2/history/bogus", headers=ah).status_code == 400
+    # ⑤ 已删除的按用户查日志端点：一律 404
+    assert client.get("/auth/users/admin/logs", headers=ah).status_code == 404
+    assert client.get("/auth/users/ghost/logs", headers=ah).status_code == 404
     client.delete("/auth/users/bob2", headers=ah)
 
 
@@ -2544,7 +2558,7 @@ def test_models_expose_vision_capability():
         if d.get("alias_of"):
             assert d["protocols"] == ["chat/completions"], d
     assert byid["hy3"]["protocols"] == ["chat/completions"]
-    assert byid["grok-4.6"]["protocols"] == ["responses"]
+    assert byid["grok-4.7"]["protocols"] == ["responses"]
     assert byid["deepseek-v4.1-flash"]["protocols"] == ["chat/completions", "messages", "responses"]
 
 
@@ -4300,8 +4314,8 @@ def test_passthrough_responses_line_and_cross_line_gate():
         with _Isolated() as mm:
             _bind_passthrough(mm, fake)
             c = TestClient(mm.app)
-            # grok-4.6 实测只认 responses 线
-            r = c.post("/v1/responses", json={"model": "grok-4.6", "input": "hi", "max_tokens": 16})
+            # grok-4.7 实测只认 responses 线
+            r = c.post("/v1/responses", json={"model": "grok-4.7", "input": "hi", "max_tokens": 16})
             assert r.status_code == 200, r.text
             assert fake.json_calls[-1][0] == m.PROTOCOL_RESPONSES
             assert r.json()["protocol"] == "responses", r.json()
