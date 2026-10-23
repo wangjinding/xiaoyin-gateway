@@ -58,3 +58,8 @@ frontend/dist/
 dist/
 *.egg-info/
 .DS_Store
+
+# 调用日志数据库（2026-10-23 落地方案）：运行时生成，不入库
+data/calllog.db
+data/calllog.db-wal
+data/calllog.db-shm

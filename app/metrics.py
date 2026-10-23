@@ -25,6 +25,7 @@ ROLE: ContextVar[str] = ContextVar("gw_role", default="member")
 #   附上「具体请求内容」，便于在日志页查看实际发了什么。有界缓存，防无界增长。
 BODY_BY_RID: dict[str, str] = {}
 
+
 # ── 视频轮询历史（/logs 按 video_id 合成到「创建」那一条里，不再每个轮询各占一行） ──
 VIDEO_POLLS: dict[str, "deque"] = {}
 _vp_lock = threading.Lock()
@@ -272,6 +273,13 @@ class AccessLog:
                 entry["body"] = snip
         with self._lock:
             self._buf.append(entry)
+        # 调用日志落地（2026-10-23）：交给 app/calllog.py —— 它与请求中间件的响应元数据
+        #   做双向握手（谁后到谁拼行），流式请求的条目比响应晚到也能落到库里。
+        try:
+            from app import calllog
+            calllog.on_access(entry)
+        except Exception:  # noqa: BLE001
+            pass
 
     def tail(self, n: int = 100) -> list[dict[str, Any]]:
         with self._lock:

@@ -44,6 +44,7 @@ from app.circuit import CircuitBreakerRegistry
 from app.config import (ConfigError, GatewayConfig, load_config, validate_warnings,
                         PROTOCOL_CHAT, PROTOCOL_MESSAGES, PROTOCOL_RESPONSES, PROTOCOLS,
                         ALIAS_PROTOCOLS)
+from app import calllog
 from app.metrics import (Metrics, AccessLog, RateLimiter, BODY_BY_RID, _BODY_MAX,
                          video_poll_push, video_polls,
                          ACCOUNT, ROLE)
@@ -220,6 +221,11 @@ async def lifespan(app: FastAPI):
     hot_task = None
     if config.server.hot_reload:
         hot_task = asyncio.create_task(_hot_reload_loop())
+    # 调用日志落地（2026-10-23）：SQLite + 后台批量写，失败不影响服务
+    try:
+        await calllog.store.start()
+    except Exception as e:  # noqa: BLE001
+        log.warning("调用日志启动失败（不影响服务）: %s", e)
     yield
     # 关闭阶段：先停热重载，再等在途请求（uvicorn 自身也做，这里补逻辑日志）
     if hot_task:
@@ -239,6 +245,11 @@ async def lifespan(app: FastAPI):
     # 第六轮: 快照后再迭代（避免迭代中字典被改动 → RuntimeError）
     for adapter in list(_state.get("adapters", {}).values()):
         await adapter.close()
+    # 调用日志：把队列里剩下的刷盘再关库（否则重启会丢最后不到 1 秒的记录）
+    try:
+        await calllog.store.close()
+    except Exception as e:  # noqa: BLE001
+        log.warning("调用日志收尾失败: %s", e)
 
 
 async def _apply_config(new: GatewayConfig, *, source: str = "热重载") -> None:
@@ -340,7 +351,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.7.3"
+VERSION = "2.8.0"
 
 app = FastAPI(
     title="API Gateway",
@@ -548,13 +559,65 @@ def _logsafe(v, maxlen: int = 200) -> str:
     return "".join(ch if ch.isprintable() else "?" for ch in str(v))[:maxlen]
 
 
+def _client_ip(request: Request) -> str:
+    """取客户端真实 IP：优先 X-Forwarded-For（EO/OpenResty 回源会带），否则取连接地址。
+
+    只给管理员看（/logs/calls 是 admin 端点），所以保留完整 IP 便于与 WAF/防火墙日志对账。
+    """
+    xff = request.headers.get("x-forwarded-for") or ""
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    return getattr(request.client, "host", "") or ""
+
+
+def _flush_calllog(request: Request, rid: str, status: int, latency_ms: float,
+                   stream: bool = False) -> None:
+    """请求收尾：把响应元数据交给 calllog，与访问日志条目拼成一行落库。"""
+    try:
+        # 只取前 8 位做标识，绝不落完整 Key。
+        # 鉴权失败（401）时 request.state.credential 是空的，但**恰恰这时最需要知道
+        # 客户端到底拿的是哪把 Key**（2026-10-23 真实工单：客户一直 401，靠这个前缀
+        # 才能判断他手上是不是旧 Key）—— 所以失败路径也记前缀。
+        hdr = request.headers.get("authorization") or ""
+        presented = (hdr[7:] if hdr.lower().startswith("bearer ")
+                     else (request.headers.get("x-api-key") or "")).strip()
+        key_id = presented[:8] if presented else ""
+        calllog.on_response(
+            rid,
+            status=status,
+            latency_ms=latency_ms,
+            ip=_client_ip(request),
+            ua=request.headers.get("user-agent") or "",
+            key_id=key_id,
+            ver=VERSION,
+            method=request.method,
+            path=request.url.path,
+            account=getattr(request.state, "account", "") or "",
+            stream=stream,
+            body=BODY_BY_RID.pop(rid, "") or "",
+        )
+    except Exception as e:  # noqa: BLE001
+        log.debug("调用日志落地失败（忽略）: %s", e)
+
+
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     rid = _sanitize_rid(request.headers.get("X-Request-ID")) or str(uuid.uuid4())
     request.state.rid = rid
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = rid
-    return response
+    t0 = time.perf_counter()
+    status = 500
+    is_stream = False
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Request-ID"] = rid
+        # SSE 请求的访问日志条目要等流真正发完才产生 → 告知 calllog 先等条目
+        is_stream = str(response.headers.get("content-type", "")).startswith("text/event-stream")
+        return response
+    finally:
+        _flush_calllog(request, rid, status, (time.perf_counter() - t0) * 1000, is_stream)
 
 
 # Fix 5（本轮）: CORS 注册放在最后 → 位于最外层，覆盖 limit_body 等短路响应。
@@ -3059,6 +3122,94 @@ async def logs(request: Request, n: int = 100, _auth=Depends(require_auth)):
     # 第十一轮 #2：日志页对**所有人（含 admin）都只显示自己的**。
     # 要看别人的调用日志/资产，走用户管理页的 admin 专属端点（/auth/users/{name}/logs）。
     return {"entries": _logs_for_account(request.state.account, n)}
+
+
+# ─────────────────────────────────────
+# 调用日志（持久化，2026-10-23）—— 仅管理员
+#
+# 与上面的 /logs 的区别：
+#   /logs       内存环形缓冲（默认 500 条，重启即丢），**只看自己的**；
+#   /logs/calls SQLite 落盘（默认保留 90 天），管理员可分页/筛选/看**所有人**的，
+#               含提示词与回复内容（截断记录）。
+# ─────────────────────────────────────
+def _require_admin_logs(request: Request) -> None:
+    """调用日志含全站内容，仅管理员可读（口径与 /metrics/prometheus、/health 收敛一致）。"""
+    if getattr(request.state, "role", "") != "admin":
+        raise HTTPException(403, "仅管理员可查看调用日志")
+
+
+def _as_ts(v: str | None) -> float | None:
+    """时间参数：支持 epoch 秒、'2026-10-23'、'2026-10-23 03:00'、ISO 'T' 分隔。"""
+    if v is None or str(v).strip() == "":
+        return None
+    s2 = str(v).strip()
+    try:
+        return float(s2)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            return time.mktime(time.strptime(s2, fmt))
+        except ValueError:
+            continue
+    return None
+
+
+@app.get("/logs/calls/stats")
+async def logs_calls_stats(request: Request, days: int = 7, _auth=Depends(require_auth)):
+    _require_admin_logs(request)
+    return calllog.store.stats(days=days)
+
+
+@app.get("/logs/calls/export")
+async def logs_calls_export(request: Request, start: str | None = None, end: str | None = None,
+                            account: str | None = None, model: str | None = None,
+                            ok: int | None = None, status: int | None = None,
+                            kind: str | None = None, q: str | None = None,
+                            _auth=Depends(require_auth)):
+    """导出 CSV（最多 5 万条，含提示词与回复内容）。"""
+    _require_admin_logs(request)
+    rows = calllog.store.export_rows(start=_as_ts(start), end=_as_ts(end), account=account,
+                                     model=model, ok=ok, status=status, kind=kind, q=q)
+    import csv as _csv
+    import io as _io
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["时间", "rid", "账号", "Key前8位", "类型", "模型", "实际模型", "供应商",
+                "流式", "成功", "状态码", "耗时ms", "IP", "UA", "提示词", "回复"])
+    for r in rows:
+        w.writerow([r.get("ts_iso"), r.get("rid"), r.get("account"), r.get("key_id"),
+                    r.get("kind"), r.get("model"), r.get("served"), r.get("provider"),
+                    "是" if r.get("stream") else "否", "是" if r.get("ok") else "否",
+                    r.get("status"), r.get("latency_ms"), r.get("ip"), r.get("ua"),
+                    (r.get("prompt") or "").replace("\n", "\\n"),
+                    (r.get("completion") or "").replace("\n", "\\n")])
+    fname = time.strftime("calllog-%Y%m%d-%H%M%S.csv", time.localtime())
+    return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/logs/calls")
+async def logs_calls(request: Request, start: str | None = None, end: str | None = None,
+                     account: str | None = None, model: str | None = None,
+                     ok: int | None = None, status: int | None = None,
+                     kind: str | None = None, q: str | None = None,
+                     limit: int = 50, offset: int = 0, content: int = 0,
+                     _auth=Depends(require_auth)):
+    _require_admin_logs(request)
+    return calllog.store.query(start=_as_ts(start), end=_as_ts(end), account=account,
+                               model=model, ok=ok, status=status, kind=kind, q=q,
+                               limit=limit, offset=offset, with_content=bool(content))
+
+
+@app.get("/logs/calls/{call_id}")
+async def logs_call_detail(request: Request, call_id: int, _auth=Depends(require_auth)):
+    _require_admin_logs(request)
+    row = calllog.store.get(call_id)
+    if not row:
+        raise HTTPException(404, f"调用日志不存在: {call_id}")
+    return row
 
 
 # ─────────────────────────────────────

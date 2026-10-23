@@ -1,5 +1,14 @@
 <template>
   <div class="page">
+    <!-- 2026-10-23 调用日志落地：两页签 —— 实时（内存环形缓冲，重启即丢）/ 调用日志（SQLite 持久化 90 天，仅管理员） -->
+    <div class="tabs">
+      <span class="tab" :class="{ on: tab === 'live' }" @click="tab = 'live'">{{ t('logs.tabLive') }}</span>
+      <span v-if="isAdmin" class="tab" :class="{ on: tab === 'calls' }" @click="tab = 'calls'">
+        {{ t('logs.tabCalls') }}
+      </span>
+    </div>
+
+    <div v-show="tab === 'live'">
     <!-- 筛选行：类型胶囊 + 原有筛选控件 + 刷新/导出 -->
     <div class="filters">
       <!-- 第十九轮：类型胶囊与「失败」互斥（原来两个维度叠加，「失败」亮着时点类型只剩空列表，
@@ -102,6 +111,9 @@
         </div>
       </div>
     </div>
+    </div>
+
+    <CallLogs v-if="tab === 'calls' && isAdmin" />
   </div>
 </template>
 
@@ -112,6 +124,13 @@ import { useI18n } from 'vue-i18n'
 import { api } from '../api'
 import Icon from '../components/Icon.vue'
 import { stamp } from '../lib/download'
+import { useSessionStore } from '../store/session'
+import CallLogs from './CallLogs.vue'
+
+const store = useSessionStore()
+const isAdmin = computed(() => store.isAdmin)
+// 'live' = 内存实时日志（原有页面）；'calls' = SQLite 持久化的调用日志（仅管理员）
+const tab = ref<'live' | 'calls'>('live')
 
 const router = useRouter()
 const { t } = useI18n()
@@ -334,6 +353,15 @@ onUnmounted(() => clearInterval(timer))
 }
 .sub { font-size: 11.5px; color: var(--muted-2); }
 .err-text { color: var(--err); font-size: 12px; }
+
+/* 2026-10-23: 顶部页签（实时 / 调用日志） */
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.tabs .tab {
+  padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--muted-2);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none;
+}
+.tabs .tab:hover { color: var(--text); }
+.tabs .tab.on { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
 
 /* 类型胶囊上的条数：小一号、淡一档；胶囊选中时跟着主色走（.on 已给 font-weight） */
 .chip-sel .cn {
