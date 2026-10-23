@@ -202,6 +202,12 @@ export default {
     provider: '供应商',
     streaming: '流式',
     loadErr: '加载日志失败',
+    tokens: 'Token 用量',
+    tokPrompt: '输入',
+    tokCompletion: '输出',
+    tokCached: '缓存命中',
+    tokReasoning: '推理',
+    cacheHit: '缓存命中率',
   },
   calllogs: {
     title: '调用日志（持久化）',

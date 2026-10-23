@@ -273,6 +273,15 @@ class AccessLog:
             snip = BODY_BY_RID.pop(rid, None)
             if snip:
                 entry["body"] = snip
+            # 2026-10-23：把这次请求的 token 用量挂到日志条目上（实时页展开即可看到
+            #   prompt/completion/cached/reasoning 与缓存命中率）。
+            try:
+                from app import calllog as _calllog
+                _tk = _calllog.peek_tokens(str(rid))
+                if _tk:
+                    entry["tokens"] = dict(_tk)
+            except Exception:  # noqa: BLE001
+                pass
         with self._lock:
             self._buf.append(entry)
         # 调用日志落地（2026-10-23）：交给 app/calllog.py —— 它与请求中间件的响应元数据

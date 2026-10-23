@@ -202,6 +202,12 @@ export default {
     provider: 'Provider',
     streaming: 'Streaming',
     loadErr: 'Failed to load logs',
+    tokens: 'Token usage',
+    tokPrompt: 'prompt',
+    tokCompletion: 'completion',
+    tokCached: 'cached',
+    tokReasoning: 'reasoning',
+    cacheHit: 'cache hit',
   },
   calllogs: {
     title: 'Call log (persisted)',

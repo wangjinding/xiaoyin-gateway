@@ -618,6 +618,17 @@ def note_tokens(rid: str, prompt: int, completion: int,
                 break
 
 
+def peek_tokens(rid: str) -> dict[str, int] | None:
+    """按 rid 偷看 token 用量（**不消耗**）—— 实时日志页展开时展示用。
+
+    真正落库时由 `_row()` 负责 pop 清空，这里只读，避免两边抢同一份数据。
+    """
+    if not store.enabled or not rid:
+        return None
+    with _tok_lock:
+        return TOKENS_BY_RID.get(str(rid))
+
+
 def on_access(entry: dict[str, Any]) -> None:
     """`AccessLog.add()` 调用：拿到访问日志条目；若响应元数据已就绪则立即落库。"""
     if not store.enabled:

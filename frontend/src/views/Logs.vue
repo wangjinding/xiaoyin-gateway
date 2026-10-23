@@ -89,6 +89,17 @@
               <b>{{ t('logs.provider') }}</b> <span class="code">{{ row.provider || '—' }}</span>
               <b>{{ t('logs.streaming') }}</b> <span class="code">{{ row.stream ? 'SSE' : t('common.no') }}</span>
             </p>
+            <!-- 2026-10-23：单笔 token 用量 + 缓存命中率 -->
+            <div class="detail-block" v-if="row.tokens">
+              <label>{{ t('logs.tokens') }}</label>
+              <div class="tok-line">
+                <span class="tok-item">{{ t('logs.tokPrompt') }} <b>{{ row.tokens.prompt_tokens ?? 0 }}</b></span>
+                <span class="tok-item">{{ t('logs.tokCompletion') }} <b>{{ row.tokens.completion_tokens ?? 0 }}</b></span>
+                <span class="tok-item">{{ t('logs.tokCached') }} <b>{{ row.tokens.cached_tokens ?? 0 }}</b></span>
+                <span class="tok-item">{{ t('logs.tokReasoning') }} <b>{{ row.tokens.reasoning_tokens ?? 0 }}</b></span>
+                <span class="tok-item tok-hit" :class="hitCls(row)">{{ t('logs.cacheHit') }} <b>{{ hitRate(row) }}%</b></span>
+              </div>
+            </div>
             <div class="detail-block"><label>{{ t('logs.request') }}</label><pre>{{ row.body || '—' }}</pre></div>
             <div class="detail-block"><label>{{ t('logs.response') }}</label><pre>{{ row.response || '—' }}</pre></div>
             <div class="detail-block" v-if="row.polls && row.polls.length">
@@ -150,6 +161,18 @@ const appliedKw = ref('')
 const expandedKeys = ref<string[]>([])
 const expandedSet = computed(() => new Set(expandedKeys.value))
 const rowKey = (row: any): string => row.rid || `${row.method}:${row.path}:${row.ts}`
+/** 缓存命中率 = cached_tokens / prompt_tokens（0 保护）。 */
+function hitRate(row: any): number {
+  const t = row.tokens || {}
+  const p = Number(t.prompt_tokens) || 0
+  const c = Number(t.cached_tokens) || 0
+  return p > 0 ? Math.round((c / p) * 1000) / 10 : 0
+}
+function hitCls(row: any): string {
+  const r = hitRate(row)
+  return r >= 50 ? 'hit-good' : r > 0 ? 'hit-mid' : 'hit-none'
+}
+
 function isOpen(row: any): boolean {
   return expandedSet.value.has(rowKey(row))
 }
@@ -335,6 +358,18 @@ onUnmounted(() => clearInterval(timer))
 .log-row :deep(.gw-icon) { color: var(--muted-2); flex: none; }
 
 .kv { margin: 0 0 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+.tok-line { display: flex; flex-wrap: wrap; gap: 6px; }
+.tok-item {
+  font-size: 11.5px; padding: 2px 8px; border-radius: 6px;
+  background: var(--chip); color: var(--muted-2);
+}
+.tok-item b { color: var(--text); font-variant-numeric: tabular-nums; }
+.tok-hit.hit-good { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+.tok-hit.hit-good b { color: var(--ok); }
+.tok-hit.hit-mid { background: color-mix(in srgb, #d9a300 14%, transparent); color: #a97c00; }
+.tok-hit.hit-mid b { color: #a97c00; }
+.tok-hit.hit-none { opacity: .65; }
+
 .detail-block { margin-bottom: 8px; }
 .detail-block label { display: block; color: var(--muted-2); font-size: 11px; margin-bottom: 2px; }
 .detail-block pre {

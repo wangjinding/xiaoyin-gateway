@@ -124,6 +124,13 @@
           <span><i>path</i>{{ detail.path || '—' }}</span>
           <span><i>ver</i>{{ detail.ver || '—' }}</span>
         </div>
+        <div class="kv" v-if="detail.tok_prompt || detail.tok_completion || detail.tok_cached || detail.tok_reasoning">
+          <span><i>{{ t('logs.tokPrompt') }}</i>{{ detail.tok_prompt || 0 }}</span>
+          <span><i>{{ t('logs.tokCompletion') }}</i>{{ detail.tok_completion || 0 }}</span>
+          <span><i>{{ t('logs.tokCached') }}</i>{{ detail.tok_cached || 0 }}</span>
+          <span><i>{{ t('logs.tokReasoning') }}</i>{{ detail.tok_reasoning || 0 }}</span>
+          <span><i>{{ t('logs.cacheHit') }}</i>{{ detail.tok_prompt ? (Math.round((detail.tok_cached || 0) / detail.tok_prompt * 1000) / 10) : 0 }}%</span>
+        </div>
         <div class="sec">
           <label>{{ t('calllogs.colContent') }}（完整，保留换行）</label>
           <pre>{{ detail.prompt_full || detail.prompt_text || '—' }}</pre>
