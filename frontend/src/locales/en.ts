@@ -208,6 +208,7 @@ export default {
     tokCached: 'cached',
     tokReasoning: 'reasoning',
     cacheHit: 'cache hit',
+    cacheHint: 'Cache misses are normal for the first request, short prompts, or changed prefixes',
   },
   calllogs: {
     title: 'Call log (persisted)',

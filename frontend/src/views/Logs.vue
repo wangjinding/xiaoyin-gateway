@@ -97,7 +97,7 @@
                 <span class="tok-item">{{ t('logs.tokCompletion') }} <b>{{ row.tokens.completion_tokens ?? 0 }}</b></span>
                 <span class="tok-item">{{ t('logs.tokCached') }} <b>{{ row.tokens.cached_tokens ?? 0 }}</b></span>
                 <span class="tok-item">{{ t('logs.tokReasoning') }} <b>{{ row.tokens.reasoning_tokens ?? 0 }}</b></span>
-                <span class="tok-item tok-hit" :class="hitCls(row)">{{ t('logs.cacheHit') }} <b>{{ hitRate(row) }}%</b></span>
+                <span class="tok-item tok-hit" :class="hitCls(row)" :title="t('logs.cacheHint')">{{ t('logs.cacheHit') }} <b>{{ hitRate(row) }}%</b></span>
               </div>
             </div>
             <div class="detail-block"><label>{{ t('logs.request') }}</label><pre>{{ row.body || '—' }}</pre></div>

@@ -65,7 +65,7 @@
         <!-- 2026-10-23：缓存命中量与命中率（cached ÷ prompt） -->
         <el-table-column :label="t('calllogs.colCache')" width="118">
           <template #default="{ row }">
-            <span v-if="row.tok_prompt" :class="hitCls(row)">
+            <span v-if="row.tok_prompt" :class="hitCls(row)" :title="t('calllogs.cacheHint')">
               {{ fmtTok(row.tok_cached) }}
               <i class="hit-pct">{{ hitRate(row) }}%</i>
             </span>

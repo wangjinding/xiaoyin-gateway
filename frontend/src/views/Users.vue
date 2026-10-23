@@ -40,7 +40,8 @@
                         </template>
                       </el-image>
                       <div class="asset-cap ellip3" :title="im.prompt">{{ im.prompt || '—' }}</div>
-                      <div class="asset-meta code ellip">{{ im.served || im.model || '' }} · {{ fmtClock((im.ts || 0) / 1000) }}</div>
+                      <div class="asset-meta code" :title="im.served || im.model || ''">{{ im.served || im.model || '—' }}</div>
+                      <div class="asset-time">{{ fmtClock((im.ts || 0) / 1000) }}</div>
                       <!-- 管理员代下载他人资产：产物在跨域 CDN 上，直链 <a download> 不生效，
                            统一走后端 /v1/media/download 代拉，与图像/视频页同一个 lib/download.ts。 -->
                       <el-button size="small" class="asset-dl"
@@ -61,7 +62,8 @@
                         <el-tag :type="vk.kind === 'fail' ? 'danger' : vk.kind === 'done' ? 'success' : 'info'" size="small">{{ vk.status || vk.kind }}</el-tag>
                       </div>
                       <div class="asset-cap ellip3" :title="vk.prompt">{{ vk.prompt || '—' }}</div>
-                      <div class="asset-meta code ellip">{{ vk.model || '' }} · {{ vk.elapsed ? vk.elapsed + 's' : '' }}</div>
+                      <div class="asset-meta code" :title="vk.model || ''">{{ vk.model || '—' }}</div>
+                      <div class="asset-time">{{ vk.elapsed ? vk.elapsed + 's' : '' }}{{ vk.elapsed ? ' · ' : '' }}{{ vk.ts ? fmtClock((vk.ts || 0) / 1000) : '' }}</div>
                       <el-button v-if="vk.src" size="small" class="asset-dl"
                         :loading="dlKey === 'v-' + vk.id"
                         @click="dlAsset(vk.src, vk.prompt, 'video', 'v-' + vk.id)">
@@ -422,6 +424,8 @@ onMounted(load)
   color: var(--muted-2); margin-top: 2px; min-width: 0; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 2026-10-23：模型名与日期各占一行，不再挤在同一行被省略 */
+.asset-time { color: var(--muted-2); font-size: 11px; margin-top: 1px; white-space: nowrap; }
 /* 下载按钮放卡片底部整行（与图像/视频页一致），不做缩略图上的浮层：手机端不会挤变形 */
 .asset-dl { width: 100%; margin-top: auto; }
 .asset-cell .asset-dl { margin-top: 8px; }
