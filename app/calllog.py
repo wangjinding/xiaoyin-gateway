@@ -10,7 +10,7 @@
 - **零新依赖**：`sqlite3` 是标准库，不引入 ORM / 数据库驱动（与本项目"依赖极简"的基调一致）。
 - **不阻塞请求**：`stage()` 只往内存队列 append；后台 task 每 1 秒或攒满 `BATCH` 条批量写库。
   队列满（默认 10000 条）即丢弃并计数，**绝不反压请求**。
-- **隐私**：API Key 只存前 8 位（`key_id`）；提示词/回复按 `CALLLOG_CONTENT_MAX` 截断（默认 8000 字）。
+- **隐私**：API Key 只存前 8 位（`key_id`）；提示词/回复按 `CALLLOG_CONTENT_MAX` 截断（默认 256KiB，实际上"不截断"）。
 - **保留**：默认 90 天，启动时清理一次 + 每 6 小时清理一次（不依赖外部 cron）。
 - **只增不改**：日志表不做 UPDATE；清理只按 `ts` 删。
 
@@ -19,7 +19,7 @@
 - `CALLLOG_DB`            默认 `data/calllog.db`
 - `CALLLOG_RETENTION_DAYS` 默认 90
 - `CALLLOG_QUEUE_MAX`      默认 10000
-- `CALLLOG_CONTENT_MAX`    默认 8000（提示词/回复各自截断长度）
+- `CALLLOG_CONTENT_MAX`    默认 262144（=256KiB，提示词/回复各自上限；详情页不截断）
 - `CALLLOG_DISABLED=1`     整体关闭（不回退任何现有行为）
 """
 
@@ -40,7 +40,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.environ.get("CALLLOG_DB") or os.path.join(_ROOT, "data", "calllog.db")
 RETENTION_DAYS = int(os.environ.get("CALLLOG_RETENTION_DAYS") or 90)
 QUEUE_MAX = int(os.environ.get("CALLLOG_QUEUE_MAX") or 10000)
-CONTENT_MAX = int(os.environ.get("CALLLOG_CONTENT_MAX") or 8000)
+CONTENT_MAX = int(os.environ.get("CALLLOG_CONTENT_MAX") or 262144)
 DISABLED = os.environ.get("CALLLOG_DISABLED", "") not in ("", "0", "false", "False")
 
 BATCH = 200                 # 攒够多少条提交一次
@@ -101,7 +101,7 @@ def _clip(v: Any, n: int = CONTENT_MAX) -> str:
     return s
 
 
-def prompt_preview(body: str | None, limit: int = 240) -> str:
+def prompt_preview(body: str | None, limit: int = 240, collapse: bool = True) -> str:
     """从请求体 JSON 里抽出「用户实际说的话」，给列表做一行预览。
 
     兼容三种入站格式：
@@ -111,11 +111,17 @@ def prompt_preview(body: str | None, limit: int = 240) -> str:
     """
     if not body:
         return ""
+
+    def _norm(t: str) -> str:
+        # collapse=True：列表预览（单行、压空白）；False：详情（保留换行排版）
+        t = " ".join(str(t).split()) if collapse else str(t)
+        return t[:limit]
+
     try:
         import json as _json
         d = _json.loads(body)
     except Exception:  # noqa: BLE001
-        return " ".join(str(body).split())[:limit]
+        return _norm(body)
     text = ""
     msgs = d.get("messages") if isinstance(d, dict) else None
     if not isinstance(msgs, list) or not msgs:
@@ -152,7 +158,7 @@ def prompt_preview(body: str | None, limit: int = 240) -> str:
                     break
     if not text:
         text = body
-    return " ".join(str(text).split())[:limit]
+    return _norm(text)
 
 
 class CallLogStore:
@@ -382,6 +388,8 @@ class CallLogStore:
         d["ts_iso"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(d["ts"]))
         # 详情也带一份「提取出的 content」，弹窗里第一屏就能看到用户说了什么
         d["prompt_text"] = prompt_preview(d.get("prompt"))
+        # 详情页要看「完整且可读」的输入：保留换行、不压空白（列表那列是单行预览）
+        d["prompt_full"] = prompt_preview(d.get("prompt"), limit=10 ** 9, collapse=False)
         return d
 
     def stats(self, days: int = 7) -> dict[str, Any]:

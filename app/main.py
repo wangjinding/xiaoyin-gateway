@@ -162,6 +162,10 @@ def _setup_logging() -> None:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 log = logging.getLogger("api-gateway")
 
+# 调用日志的内容上限（2026-10-23）：提示词/回复按此长度截断，默认 128KiB（≈32k tokens）。
+# 详情页要求「不截断」，实际上 128KiB 已覆盖绝大多数对话；要真的无限就把这个值调大。
+_CONTENT_MAX = int(__import__("os").environ.get("CALLLOG_BODY_MAX") or 131072)
+
 
 def _config_mtime() -> float:
     try:
@@ -351,7 +355,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.1"
+VERSION = "2.9.2"
 
 app = FastAPI(
     title="API Gateway",
@@ -498,8 +502,9 @@ async def in_flight_tracker(request: Request, call_next):
     if rid:
         try:
             raw = await request.body()
-            BODY_BY_RID[rid] = raw[:8000].decode("utf-8", "replace")
-            if len(BODY_BY_RID) > 2 * _BODY_MAX:
+            # 调用日志要看完整提示词：放宽到 128KiB（≈32k tokens），并只保留最近 N 条
+            BODY_BY_RID[rid] = raw[:_CONTENT_MAX].decode("utf-8", "replace")
+            if len(BODY_BY_RID) > 128:
                 BODY_BY_RID.clear()
         except Exception:
             BODY_BY_RID.pop(rid, None)
@@ -996,6 +1001,22 @@ def _identity_from_credentials(key: str) -> tuple[str, str, str] | None:
     if not ident:
         return None
     return ident[0], ident[1], "apikey"
+
+
+def _content(v, maxlen: int = _CONTENT_MAX) -> str:
+    """调用日志用的「内容」清洗：**保留换行与制表**（详情页要看原文排版）。
+
+    与 `_logsafe` 的区别：后者是给**单行文本日志**用的（会把 \n 压成 `?`，
+    防 `%0a` 伪造日志行）。调用日志要展示提示词/回复原文，压掉换行就没法看了，
+    所以这里只去 NUL 等不可见控制字符，换行/制表原样保留。
+    """
+    if v is None:
+        return ""
+    t = v if isinstance(v, str) else str(v)
+    t = "".join(ch for ch in t if ch in "\n\t\r" or ch.isprintable())
+    if maxlen and len(t) > maxlen:
+        return t[:maxlen] + f"\n…（已截断，共 {len(t)} 字）"
+    return t
 
 
 def _upstream_detail(text: str) -> str:
@@ -1644,8 +1665,8 @@ async def _passthrough(request: Request, protocol: str):
     _access.add({"method": "POST", "kind": "chat", "path": f"/v1/{protocol}", "rid": rid,
                  "model": model_in, "served": model_in, "provider": pkey,
                  "caller": caller, "ok": ok, "stream": False,
-                 "response": _logsafe(_resp_text(data) if ok else _upstream_detail(
-                     json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else str(data)), 8000)})
+                 "response": _content(_resp_text(data) if ok else _upstream_detail(
+                     json.dumps(data, ensure_ascii=False) if isinstance(data, dict) else str(data)))})
 
     if not ok:
         # 直传口径：上游的错误体**原样**回给客户端（错误文案也不翻译），只加一个
@@ -1690,7 +1711,7 @@ async def _passthrough_stream(request, rid, caller, protocol, adapter, cb,
         _access.add({"method": "POST", "kind": "chat", "path": f"/v1/{protocol}", "rid": rid,
                      "model": model_in, "served": model_in, "provider": pkey, "caller": caller,
                      "ok": False, "stream": True,
-                     "response": _logsafe(_upstream_detail(raw.decode("utf-8", "replace")), 8000)})
+                     "response": _content(_upstream_detail(raw.decode("utf-8", "replace")))})
         return Response(content=raw, status_code=resp.status_code, media_type=ctype, headers=headers)
 
     scanner = _UsageScanner(protocol)
@@ -2051,7 +2072,7 @@ async def _chat_once(cfg, rid, caller, request, req, model_id, messages, tools):
     _access.add({"method": "POST", "kind": "chat", "path": "/v1/chat/completions", "rid": rid,
                  "model": req.model, "served": model_id, "provider": pkey,
                  "caller": caller, "ok": True, "stream": False,
-                 "response": _logsafe(_resp_text(result), 8000)})
+                 "response": _content(_resp_text(result))})
     resp = {
         "id": result.get("id", "") or f"chatcmpl-{rid}", "object": "chat.completion",
         "created": int(time.time()), "model": req.model,
@@ -2179,7 +2200,7 @@ def _stream_response(request, req, model_id, messages, tools):
                 _access.add({"method": "POST", "kind": "chat", "path": "/v1/chat/completions", "rid": rid,
                              "model": req.model, "served": model_id, "provider": pkey,
                              "caller": caller, "ok": True, "stream": True,
-                             "response": _logsafe(_stream_log_text(resp_parts, reason_parts), 8000)})
+                             "response": _content(_stream_log_text(resp_parts, reason_parts))})
                 # 功能 8: 流式末尾发一个 usage 块（累计自上游 chunks 的 usage，若有）
                 if stream_usage:
                     uf = {'id': f'chatcmpl-{rid}', 'object': 'chat.completion.chunk', 'created': int(time.time()),
@@ -2197,7 +2218,7 @@ def _stream_response(request, req, model_id, messages, tools):
                 _access.add({"method": "POST", "kind": "chat", "path": "/v1/chat/completions", "rid": rid,
                              "model": req.model, "served": model_id, "provider": pkey,
                              "caller": caller, "ok": False, "stream": True, "error": str(e)[:200],
-                             "response": _logsafe(_stream_log_text(resp_parts, reason_parts), 8000)})
+                             "response": _content(_stream_log_text(resp_parts, reason_parts))})
                 # 第六轮: 已向客户端输出过 content 时本来就无法回退（第二十七轮起更没有下一个
                 #   模型可退），统一发错误帧 + [DONE] 收尾，避免破坏已输出的 SSE 流。
                 yield f"data: {json.dumps({'error': str(e), 'served_model': model_id}, ensure_ascii=False)}\n\n"

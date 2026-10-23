@@ -124,11 +124,11 @@
           <span><i>ver</i>{{ detail.ver || '—' }}</span>
         </div>
         <div class="sec">
-          <label>{{ t('calllogs.colContent') }}</label>
-          <pre>{{ detail.prompt_text || '—' }}</pre>
+          <label>{{ t('calllogs.colContent') }}（完整，保留换行）</label>
+          <pre>{{ detail.prompt_full || detail.prompt_text || '—' }}</pre>
         </div>
         <div class="sec">
-          <label>{{ t('calllogs.prompt') }}</label>
+          <label>{{ t('calllogs.prompt') }}（原始请求体 JSON）</label>
           <pre>{{ detail.prompt || '—' }}</pre>
         </div>
         <div class="sec">
@@ -300,7 +300,7 @@ onMounted(loadPage)
 .sec { margin-top: 12px; }
 .sec label { font-size: 12px; color: var(--muted-2); }
 .sec pre {
-  margin: 4px 0 0; padding: 10px 12px; max-height: 260px; overflow: auto;
+  margin: 4px 0 0; padding: 10px 12px; max-height: 460px; overflow: auto;
   background: var(--surface-2, #f7f8fa); border: 1px solid var(--line); border-radius: 8px;
   font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
