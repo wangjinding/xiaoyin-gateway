@@ -249,7 +249,6 @@ export default {
   users: {
     viewLogs: 'View logs',
     viewActivity: 'Activity',
-    tabLogs: 'Call logs',
     tabImages: 'Images',
     tabVideos: 'Videos',
     noData: 'No records',

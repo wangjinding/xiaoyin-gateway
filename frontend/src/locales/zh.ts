@@ -249,7 +249,6 @@ export default {
   users: {
     viewLogs: '查看日志',
     viewActivity: '查看活动',
-    tabLogs: '调用日志',
     tabImages: '图像资产',
     tabVideos: '视频资产',
     noData: '暂无记录',

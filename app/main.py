@@ -355,7 +355,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.6"
+VERSION = "2.9.7"
 
 app = FastAPI(
     title="API Gateway",
@@ -3228,7 +3228,8 @@ async def logs_recent(request: Request, n: int = 200, _auth=Depends(require_auth
 @app.get("/logs")
 async def logs(request: Request, n: int = 100, _auth=Depends(require_auth)):
     # 第十一轮 #2：日志页对**所有人（含 admin）都只显示自己的**。
-    # 要看别人的调用日志/资产，走用户管理页的 admin 专属端点（/auth/users/{name}/logs）。
+    # 要看别人的调用日志 → 「日志 → 调用日志」页签（/logs/calls，仅管理员）；
+    # 要看别人的资产 → 用户管理页的 /auth/users/{name}/history/{kind}。
     return {"entries": _logs_for_account(request.state.account, n)}
 
 
@@ -3626,17 +3627,8 @@ async def auth_revoke_user_keys(username: str, request: Request, _auth=Depends(r
     return {"status": "ok", "revoked_keys": n}
 
 
-# ── 第十一轮 #2：管理员在「用户管理」里看某个账号的调用日志 + 生成的资产 ──
-@app.get("/auth/users/{username}/logs")
-async def auth_user_logs(username: str, request: Request, n: int = 200,
-                         _auth=Depends(require_auth)):
-    """某账号的调用日志（含视频轮询合成）。仅管理员；只读，不需会话凭证。"""
-    _require_admin(request)
-    if _users.find(username) is None:
-        raise HTTPException(404, f"账号 {username} 不存在")
-    return {"account": username, "entries": _logs_for_account(username, n)}
-
-
+# ── 2026-10-23：管理员在「用户管理」里看某个账号生成的资产 ──
+#    （原有的 /auth/users/{username}/logs 已删除 —— 调用日志统一走「日志 → 调用日志」页签）
 @app.get("/auth/users/{username}/history/{kind}")
 async def auth_user_history(username: str, kind: str, request: Request,
                             _auth=Depends(require_auth)):

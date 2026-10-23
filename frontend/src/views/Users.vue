@@ -27,39 +27,9 @@
       >
         <el-table-column type="expand">
           <template #default="{ row }">
-            <!-- 第十一轮 #2：admin 在此看该账号的调用日志 + 生成的图像/视频资产 -->
+            <!-- 2026-10-23：admin 在此看该账号生成的图像/视频资产（调用日志已并入「日志 → 调用日志」页签） -->
             <div class="expand-row" v-loading="act(row.name).loading">
               <el-tabs v-model="act(row.name).tab">
-                <el-tab-pane :label="t('users.tabLogs')" name="logs">
-                  <el-table :data="act(row.name).logs" size="small" max-height="360"
-                    :empty-text="t('users.noData')">
-                    <el-table-column :label="t('logs.time')" width="92">
-                      <template #default="{ row: e }"><span class="code">{{ fmtClock(e.ts) }}</span></template>
-                    </el-table-column>
-                    <el-table-column :label="t('logs.result')" width="66">
-                      <template #default="{ row: e }">
-                        <el-tag :type="e.ok ? 'success' : 'danger'" size="small">{{ e.ok ? t('common.ok') : t('common.fail') }}</el-tag>
-                      </template>
-                    </el-table-column>
-                    <el-table-column :label="t('logs.path')" min-width="160">
-                      <template #default="{ row: e }"><span class="code">{{ e.method }} {{ e.path }}</span></template>
-                    </el-table-column>
-                    <el-table-column :label="t('logs.modelProvider')" min-width="140">
-                      <template #default="{ row: e }">
-                        <span class="code">{{ e.served || e.model || '—' }}</span>
-                        <span v-if="e.provider" class="at-prov">@ {{ e.provider }}</span>
-                      </template>
-                    </el-table-column>
-                    <el-table-column :label="t('logs.respContent')" min-width="220">
-                      <template #default="{ row: e }">
-                        <span v-if="e.response" class="ellip" :title="e.response">{{ e.response }}</span>
-                        <span v-else-if="!e.ok" class="err-text ellip" :title="e.error">{{ e.error || '—' }}</span>
-                        <span v-else class="muted">—</span>
-                      </template>
-                    </el-table-column>
-                  </el-table>
-                </el-tab-pane>
-
                 <el-tab-pane :label="`${t('users.tabImages')} (${act(row.name).images.length})`" name="images">
                   <div v-if="act(row.name).images.length" class="asset-grid">
                     <div v-for="im in act(row.name).images" :key="im.id" class="asset-cell">
@@ -271,11 +241,11 @@ const shown = computed(() => {
 })
 
 // 每个账号的活动数据（日志 + 图像 + 视频），展开时懒加载一次
-type Activity = { loading: boolean; loaded: boolean; tab: string; logs: any[]; images: any[]; videos: any[] }
+type Activity = { loading: boolean; loaded: boolean; tab: string; images: any[]; videos: any[] }
 const activity = reactive<Record<string, Activity>>({})
 function act(name: string): Activity {
   if (!activity[name]) {
-    activity[name] = { loading: false, loaded: false, tab: 'logs', logs: [], images: [], videos: [] }
+    activity[name] = { loading: false, loaded: false, tab: 'images', images: [], videos: [] }
   }
   return activity[name]
 }
@@ -310,12 +280,10 @@ async function loadActivity(name: string) {
   if (a.loaded) return
   a.loading = true
   try {
-    const [lg, im, vd] = await Promise.all([
-      api(`/auth/users/${encodeURIComponent(name)}/logs?n=200`),
+    const [im, vd] = await Promise.all([
       api(`/auth/users/${encodeURIComponent(name)}/history/images`),
       api(`/auth/users/${encodeURIComponent(name)}/history/videos`),
     ])
-    a.logs = lg.entries || []
     a.images = im.items || []
     a.videos = vd.items || []
     a.loaded = true
