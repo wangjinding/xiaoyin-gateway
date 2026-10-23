@@ -355,7 +355,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 # 2026-09-30: 2.6.1 → 2.7.0（按老板要求整个删除「火山方舟 Coding Plan」供应商：配置/模型/代码/文档/前端下拉/环境变量全清）。
 # 2026-09-30: 2.7.0 → 2.7.1（界面提示白话化：熔断器→供应商自动保护、引擎→运行环境、slug→标识；删 120 个未引用死键）。
 #   ★ 版本号纪律：每次改动都要往上加，小改动加小版本号、大改动加大版本号（README 有专章）。
-VERSION = "2.9.4"
+VERSION = "2.9.5"
 
 app = FastAPI(
     title="API Gateway",
@@ -601,7 +601,12 @@ def _flush_calllog(request: Request, rid: str, status: int, latency_ms: float,
             path=request.url.path,
             account=getattr(request.state, "account", "") or "",
             stream=stream,
-            body=BODY_BY_RID.pop(rid, "") or "",
+            # 2026-10-23 修：流式请求的访问日志条目要等 SSE 真正发完才产生，
+            #   而本函数（中间件收尾）在 SSE 开始前就跑完了 —— 原先这里无条件 pop，
+            #   会把请求体提前取走，导致流式调用的「请求内容」永远为空。
+            #   所以：流式只 peek（留给 AccessLog.add 去 pop），非流式才直接取走
+            #   （早失败的 synthetic 条目不会再产生，必须在这里 pop 掉，避免 BODY_BY_RID 泄漏）。
+            body=(BODY_BY_RID.get(rid, "") if stream else BODY_BY_RID.pop(rid, "")) or "",
         )
     except Exception as e:  # noqa: BLE001
         log.debug("调用日志落地失败（忽略）: %s", e)
