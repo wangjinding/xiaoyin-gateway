@@ -11,58 +11,6 @@
     </div>
 
     <div class="grid2">
-      <!-- 全部文本模型 + 一键测速（延迟逐行填充；测速按模型自己的协议线探测） -->
-      <div class="card">
-        <div class="card-h">
-          <b>{{ t('models.allTextModels') }}</b>
-          <span class="sub">{{ t('models.speedtestHint', { n: SPEEDTEST_MAX_CONCURRENCY }) }}</span>
-          <span style="flex:1"></span>
-          <!-- 一键测速与单独测速互斥：整轮在跑时不让单测插队（同一个模型会被两边同时覆盖结果）；
-               反过来，有单测在飞时也先别开整轮。 -->
-          <el-button size="small" :loading="latTesting" :disabled="latRunningCount > 0"
-                     @click="runSpeedtest()">
-            {{ latTesting ? t('models.testingShort') : t('models.speedtest') }}
-          </el-button>
-        </div>
-
-        <div class="lat-head">
-          <span class="muted-2 hint">{{ t('models.allTextModels') }}</span>
-          <span style="flex:1"></span>
-          <span class="muted-2 hint">{{ t('models.latency') }}</span>
-        </div>
-        <div v-for="m in textModelRows" :key="m.id" class="st-item">
-          <div class="st-row" :title="rowTitle(m)">
-            <Icon v-if="m.vision" name="eye" :size="12" class="vision" />
-            <!-- 第二十五轮：该模型的参数被上游固定（如 temperature 只能是 1），
-                 挂锁标注 + 悬浮说明，省掉「为什么我传的参数不生效」这类困惑。 -->
-            <Icon v-if="m.paramNote" name="lock" :size="12" class="plock" :title="m.paramNote" />
-            <span class="code">{{ m.id }}</span>
-            <!-- 2026-09-21（老板要求）：免费标志直接跟在模型名后面
-                 2026-09-24：区分「免费」与「限时免费」（Agnes 视频 2.5 Flash 是限时档） -->
-            <span v-if="m.free" class="pill free name-free" :title="freeHint(m)">{{ freeText(m) }}</span>
-            <!-- 支持的格式不在这里铺标签：这行还要放供应商/延迟/测速按钮，窄卡放不下第三颗
-                 （悬停整行可见格式 + 本次测速走的线，见 rowTitle）。权威展示在下方表格的
-                 「支持的格式」列。 -->
-            <span class="muted-2 st-prov">{{ m.provider }}</span>
-            <span style="flex:1"></span>
-            <span class="pill st-lat" :class="latCls(m.id)">
-              <!-- 加载图标两种来源：整轮测速的当前行（latCurrentId），或这一个单独在测（latRunning） -->
-              <span v-if="m.id === latCurrentId || latRunning[m.id]" class="st-spin" aria-hidden="true"></span>
-              <span v-else>{{ latText(m.id) }}</span>
-            </span>
-            <button class="st-one"
-                    :disabled="latTesting || !!latRunning[m.id] || latRunningCount >= SPEEDTEST_MAX_CONCURRENCY"
-                    :title="testOneHint(m)" :aria-label="testOneHint(m)" @click="retestOne(m.id)">
-              <Icon name="bolt" :size="13" />
-            </button>
-          </div>
-          <div v-if="latErr(m.id)" class="st-err">
-            <Icon name="ban" :size="13" class="st-err-ico" />
-            <span class="st-err-txt">{{ latErr(m.id) }}</span>
-          </div>
-        </div>
-        <div v-if="!textModelRows.length" class="hint">{{ t('common.empty') }}</div>
-      </div>
 
       <!-- 供应商：状态取 /health 的熔断器，Key 是否配置取同一份数据 -->
       <div class="card">
@@ -84,48 +32,40 @@
         </div>
         <div v-if="!providerRows.length" class="hint">{{ t('common.empty') }}</div>
       </div>
-    </div>
 
-    <!-- 第三十一轮：虚拟模型 id（别名）。客户端固定写 model: wjd，实际转发到哪个真实模型
-         由管理员在这里选；member 没有编辑行，只看到「wjd → 目标」这一行数据（数据来自
-         /v1/models 的 alias_of —— 普通账号读不到 /config，也不需要读到）。
-         保存走 PUT /config（管理员 + 网页会话），**保存即生效**：不需要重启网关。 -->
-    <div v-if="aliasRows.length" class="card" style="margin-top: var(--gap)">
-      <div class="card-h">
-        <b>{{ t('models.aliasCard') }}</b>
-      </div>
-
-      <div v-for="a in aliasRows" :key="a.name" class="alias">
-        <div class="alias-top">
-          <Icon name="link" :size="14" class="alias-ico" />
-          <span class="pill alias-id">{{ a.name }}</span>
-          <span class="alias-arrow">→</span>
-          <span v-if="a.target" class="code">{{ a.target }}</span>
-          <span v-else class="muted-2">—</span>
-          <span class="pill" :class="a.enabled ? 'ok' : 'mute'">
-            {{ a.enabled ? t('models.aliasEnabled') : t('models.aliasDisabled') }}
-          </span>
+    <!-- 供应商用量详情：OpenCode Go 套餐的三个窗口（rolling / weekly / monthly）。
+         数据来自网关 /providers/opencode/usage（上游 /zen/go/v1/usage，网关侧缓存 8 秒），
+         前端每 10 秒拉一次；**剩余时间**由 resetsAt 在本地倒计时，每秒刷新一次。 -->
+        <div class="card">
+        <div class="card-h">
+          <b>{{ t('models.usageCard') }}</b>
+          <span class="sub">{{ ocUsageErr || t('models.usageAuto') }}</span>
         </div>
-
-        <!-- 管理员：选目标（只有支持 chat/completions 的文本模型可选，其余置灰） -->
-        <div v-if="isAdmin" class="alias-edit">
-          <el-switch v-model="a.enabled" :active-text="t('models.aliasEnabled')" />
-          <el-select v-model="a.target" class="alias-sel" clearable
-                     :placeholder="t('models.aliasTargetPick')">
-            <el-option v-for="o in aliasOptions" :key="o.id" :value="o.id"
-                       :label="o.label" :disabled="!o.ok" />
-          </el-select>
-          <span style="flex:1"></span>
-          <el-button type="primary" size="small" :disabled="aliasSaveDisabled"
-                     :loading="aliasSaving" @click="saveAlias()">
-            {{ t('models.aliasSave') }}
-          </el-button>
-        </div>
-        <div class="alias-hint">
-          <div>{{ t('models.aliasLine', { id: a.name }) }}</div>
-          <div>{{ t('models.aliasInherit') }}</div>
-          <div v-if="isAdmin">{{ t('models.aliasPickHint') }}</div>
-          <div v-if="!a.target" class="alias-warn">{{ t('models.aliasNotConfigured', { id: a.name }) }}</div>
+        <div class="usage-prov">
+          <div class="prov-top">
+            <b>OpenCode Go</b>
+            <span class="pill" :class="ocUsage ? 'ok' : 'mute'">
+              {{ ocUsage ? t('models.usageLive') : t('models.usageNone') }}
+            </span>
+          </div>
+          <template v-if="ocUsage">
+            <div v-for="w in usageWindows" :key="w.key" class="usage-row">
+              <span class="usage-l">{{ t(w.label) }}</span>
+              <div class="usage-bar"><i :class="w.cls" :style="{ width: w.width }"></i></div>
+              <span class="usage-p" :class="w.cls">{{ w.pct }}%</span>
+              <span class="usage-reset">{{ t('models.usageResetIn', { t: w.resetText }) }}</span>
+            </div>
+            <!-- 订阅续期：官方控制台顶部那句「Renews in 17d 17h」。
+                 上游 /usage 只有 rolling/weekly/monthly 三个窗口，没有单独的续期字段；
+                 实测 monthly.resetsAt 与官方控制台的续期时间完全一致（2026-10-30 核对），
+                 所以直接用月度重置时间当续期日。 -->
+            <div class="usage-renew">
+              <span class="usage-l">{{ t('models.usageRenew') }}</span>
+              <span style="flex:1"></span>
+              <span class="usage-renew-t">{{ renewText }}</span>
+            </div>
+          </template>
+          <div v-else class="muted-2 usage-empty">{{ t('models.usageNone') }}</div>
         </div>
       </div>
     </div>
@@ -137,6 +77,13 @@
         <div class="pager">
           <span class="pill mute">{{ t('models.textModelCount', { n: textModelRows.length }) }}</span>
         </div>
+      </div>
+      <div class="lat-toolbar">
+        <span class="muted-2">{{ t('models.speedtestHint', { n: SPEEDTEST_MAX_CONCURRENCY }) }}</span>
+        <span style="flex:1"></span>
+        <el-button size="small" :loading="latTesting" :disabled="latRunningCount > 0" @click="runSpeedtest()">
+          {{ latTesting ? t('models.testingShort') : t('models.speedtest') }}
+        </el-button>
       </div>
       <el-table :data="modelRows" size="small" v-loading="loading">
         <el-table-column :label="t('models.id')" min-width="215">
@@ -194,13 +141,77 @@
             </span>
           </template>
         </el-table-column>
+        <!-- 延迟列：只有文本模型能测速（图像/视频走专用端点，不参与延迟探测）。
+             2026-10-30（老板）：延迟与单测按钮从独立的「全部文本模型」卡并入这张表。 -->
+        <el-table-column :label="t('models.latency')" width="150">
+          <template #default="{ row }">
+            <template v-if="row.type === 'text'">
+              <span class="pill st-lat" :class="latCls(row.id)" :title="latErr(row.id) || ''">
+                <span v-if="row.id === latCurrentId || latRunning[row.id]" class="st-spin" aria-hidden="true"></span>
+                <span v-else>{{ latText(row.id) }}</span>
+              </span>
+              <button class="st-one"
+                      :disabled="latTesting || !!latRunning[row.id] || latRunningCount >= SPEEDTEST_MAX_CONCURRENCY"
+                      :title="testOneHint(row)" :aria-label="testOneHint(row)" @click="retestOne(row.id)">
+                <Icon name="bolt" :size="13" />
+              </button>
+            </template>
+            <el-tooltip v-else :content="t('models.latencyNaHint')" placement="top">
+              <span class="muted-2">—</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
       </el-table>
+    </div>
+
+    <!-- 第三十一轮：虚拟模型 id（别名）。客户端固定写 model: wjd，实际转发到哪个真实模型
+         由管理员在这里选；member 没有编辑行，只看到「wjd → 目标」这一行数据（数据来自
+         /v1/models 的 alias_of —— 普通账号读不到 /config，也不需要读到）。
+         保存走 PUT /config（管理员 + 网页会话），**保存即生效**：不需要重启网关。 -->
+    <div v-if="aliasRows.length" class="card" style="margin-top: var(--gap)">
+      <div class="card-h">
+        <b>{{ t('models.aliasCard') }}</b>
+      </div>
+
+      <div v-for="a in aliasRows" :key="a.name" class="alias">
+        <div class="alias-top">
+          <Icon name="link" :size="14" class="alias-ico" />
+          <span class="pill alias-id">{{ a.name }}</span>
+          <span class="alias-arrow">→</span>
+          <span v-if="a.target" class="code">{{ a.target }}</span>
+          <span v-else class="muted-2">—</span>
+          <span class="pill" :class="a.enabled ? 'ok' : 'mute'">
+            {{ a.enabled ? t('models.aliasEnabled') : t('models.aliasDisabled') }}
+          </span>
+        </div>
+
+        <!-- 管理员：选目标（只有支持 chat/completions 的文本模型可选，其余置灰） -->
+        <div v-if="isAdmin" class="alias-edit">
+          <el-switch v-model="a.enabled" :active-text="t('models.aliasEnabled')" />
+          <el-select v-model="a.target" class="alias-sel" clearable
+                     :placeholder="t('models.aliasTargetPick')">
+            <el-option v-for="o in aliasOptions" :key="o.id" :value="o.id"
+                       :label="o.label" :disabled="!o.ok" />
+          </el-select>
+          <span style="flex:1"></span>
+          <el-button type="primary" size="small" :disabled="aliasSaveDisabled"
+                     :loading="aliasSaving" @click="saveAlias()">
+            {{ t('models.aliasSave') }}
+          </el-button>
+        </div>
+        <div class="alias-hint">
+          <div>{{ t('models.aliasLine', { id: a.name }) }}</div>
+          <div>{{ t('models.aliasInherit') }}</div>
+          <div v-if="isAdmin">{{ t('models.aliasPickHint') }}</div>
+          <div v-if="!a.target" class="alias-warn">{{ t('models.aliasNotConfigured', { id: a.name }) }}</div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -467,6 +478,7 @@ const providerRows = computed(() => {
   return Object.keys(p).map((k) => {
     const c = String(p[k].circuit || '').toUpperCase()
     return {
+      k,                                    // 供应商 key（模板里靠它判断是不是 opencode）
       name: p[k].name,
       models: p[k].models,
       keySet: !!p[k].api_key_set,
@@ -497,7 +509,84 @@ async function load() {
   }
 }
 
-onMounted(load)
+// ── OpenCode Go 套餐用量（每 10 秒刷新）──────────────────────────────────
+//   只有 opencode 供应商需要这份数据；网关侧缓存 8 秒，所以 10 秒轮询不会打穿上游。
+const ocUsage = ref<any>(null)
+const ocUsageErr = ref('')
+let ocTimer: ReturnType<typeof setInterval> | null = null
+let tickTimer: ReturnType<typeof setInterval> | null = null
+// 倒计时用的「现在」：每秒 +1，驱动 resetsAt 的剩余时间重算（不用等 10 秒轮询）
+const nowTick = ref(Date.now())
+
+/** 把「剩余毫秒」格式化成 17d 18h / 4h 40m / 44m（和官方控制台一致）。 */
+function fmtRemain(ms: number): string {
+  if (!isFinite(ms) || ms <= 0) return '—'
+  const total = Math.floor(ms / 1000)
+  const dd = Math.floor(total / 86400)
+  const hh = Math.floor((total % 86400) / 3600)
+  const mm = Math.floor((total % 3600) / 60)
+  if (dd > 0) return `${dd}d ${hh}h`
+  if (hh > 0) return `${hh}h ${mm}m`
+  return `${mm}m`
+}
+
+async function loadOcUsage() {
+  try {
+    const j = await api('/providers/opencode/usage')
+    ocUsage.value = (j && (j.usage || j)) || null
+    ocUsageErr.value = ''
+  } catch (e: any) {
+    // 不弹 toast：轮询失败只在这里挂一句，页面不闪
+    ocUsageErr.value = t('models.usageErr')
+  }
+}
+
+// 三条窗口按「剩余越少越危险」着色：≥85% 红、≥60% 橙、其余绿
+const usageWindows = computed(() => {
+  const u = ocUsage.value || {}
+  const defs: Array<{ key: string; label: string }> = [
+    { key: 'rolling', label: 'models.usageRolling' },
+    { key: 'weekly', label: 'models.usageWeekly' },
+    { key: 'monthly', label: 'models.usageMonthly' },
+  ]
+  return defs.map((d) => {
+    const w = u[d.key] || {}
+    const pct = Math.max(0, Math.min(100, Math.round(Number(w.percent) || 0)))
+    const cls = pct >= 85 ? 'err' : pct >= 60 ? 'warn' : 'ok'
+    // 剩余时间：resetsAt 是 ISO 时间戳（UTC），减本地 now 得到毫秒差
+    let resetText = '—'
+    if (w.resetsAt) {
+      const t = Date.parse(String(w.resetsAt))
+      if (!isNaN(t)) resetText = fmtRemain(t - nowTick.value)
+    }
+    return { ...d, pct, cls, width: pct + '%', resetText }
+  })
+})
+
+// 订阅续期 = 月度重置时间（官方控制台的「Renews in …」就是它）。
+//   同时给出倒计时和绝对日期，方便对账。
+const renewText = computed(() => {
+  const m = (ocUsage.value || {}).monthly || {}
+  if (!m.resetsAt) return '—'
+  const t = Date.parse(String(m.resetsAt))
+  if (isNaN(t)) return '—'
+  const d = new Date(t)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const abs = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${fmtRemain(t - nowTick.value)} · ${abs}`
+})
+
+onMounted(async () => {
+  await load()
+  await loadOcUsage()
+  ocTimer = setInterval(loadOcUsage, 10_000)          // 数据每 10 秒拉一次
+  tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1_000)  // 倒计时每秒走
+})
+
+onUnmounted(() => {
+  if (ocTimer) { clearInterval(ocTimer); ocTimer = null }
+  if (tickTimer) { clearInterval(tickTimer); tickTimer = null }
+})
 </script>
 
 <style scoped>
@@ -528,6 +617,28 @@ onMounted(load)
 .prov-top { display: flex; align-items: center; gap: 8px; }
 .prov-top b { font-size: 13px; }
 .prov-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; }
+/* OpenCode Go 套餐用量（供应商卡片内） */
+/* 供应商用量详情卡片（独立卡片，放在供应商卡片下方） */
+.usage-prov { padding: 2px 0 4px; }
+/* 模型清单卡里的测速工具条（原「全部文本模型」卡的按钮，合并后挪到这里） */
+.lat-toolbar { display: flex; align-items: center; gap: 8px; padding: 2px 0 8px; border-bottom: 1px dashed var(--line-2); margin-bottom: 4px; }
+.usage-prov .prov-top { margin-bottom: 8px; }
+.usage-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; }
+.usage-l { flex: 0 0 76px; color: var(--muted-2); }
+.usage-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; min-width: 80px; }
+.usage-bar i { display: block; height: 100%; border-radius: 3px; transition: width .35s ease; }
+.usage-bar i.ok { background: #10b981; }
+.usage-bar i.warn { background: #f59e0b; }
+.usage-bar i.err { background: #ef4444; }
+.usage-p { flex: 0 0 40px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.usage-reset { flex: 0 0 120px; text-align: right; color: var(--muted-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* 订阅续期：卡片底部单独一行，和三条窗口隔开 */
+.usage-renew { display: flex; align-items: center; gap: 10px; margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line-2); font-size: 12px; }
+.usage-renew-t { color: var(--muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.usage-p.ok { color: #10b981; }
+.usage-p.warn { color: #f59e0b; }
+.usage-p.err { color: #ef4444; }
+.usage-empty { font-size: 11px; padding: 2px 0; }
 .cap { display: inline-flex; align-items: center; gap: 4px; }
 .st { margin-top: 8px; border-top: 1px dashed var(--line-2); padding-top: 6px; }
 .st-item { padding: 4px 0; }

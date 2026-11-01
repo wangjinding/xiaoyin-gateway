@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## 2026-10-31 · 新增 1min.AI 供应商（43 个模型）
+
+老板：「查看 https://docs.1min.ai/docs/api/openai-compatible 文档，把 1min 供应商加入 ai 网关项目里」。
+
+### 接入方式
+
+1min.AI 提供 **OpenAI 兼容端点**：`https://api.1min.ai/openai/v1`
+
+| 端点 | 用途 |
+|---|---|
+| `GET /openai/v1/models` | 列出可用模型（返回 id / owned_by，无上下文窗口信息）|
+| `GET /openai/v1/models/{id}` | 单个模型 |
+| `POST /openai/v1/chat/completions` | 对话（支持 stream）|
+
+鉴权：`Authorization: Bearer YOUR_1MIN_API_KEY`（1min 的 key，不是上游厂商的 key）。
+
+### 落地内容
+
+- `data/.env` 新增 `ONEMIN_API_KEY`
+- `data/gateway.yaml` 新增 `onemin` 供应商，base_url `https://api.1min.ai/openai/v1`，
+  模型清单从 `/openai/v1/models` 拉取（49 个），**剔除 6 个与 opencode 重名的**
+  （`qwen3.7-plus` / `deepseek-v4-pro` / `glm-5.3` / `glm-5.2` / `gpt-5.6-luna` / `gpt-6-luna`），
+  避免网关告警「模型 id 被多个供应商定义，按 id 调用将始终命中 onemin」把主路由抢走。
+
+### 最终模型分布（80 个）
+
+| 供应商 | 模型数 |
+|---|---|
+| **onemin** | **43** |
+| opencode | 27 |
+| agnes | 9 |
+| dots | 1 |
+
+### 验证
+
+```bash
+# 直连 1min
+curl -H "Authorization: Bearer $ONEMIN_API_KEY" https://api.1min.ai/openai/v1/models
+
+# 经网关
+curl -H "Authorization: Bearer <网关key>" http://127.0.0.1:8808/v1/models
+curl -X POST http://127.0.0.1:8808/v1/chat/completions \
+  -H "Authorization: Bearer <网关key>" -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.7-flash","messages":[{"role":"user","content":"你好"}]}'
+```
+
+实测 `qwen3.7-flash` 经网关返回「你好！」，用量正常。
+
+> ⚠️ 1min 的 `/models` 不返回上下文窗口，`gateway.yaml` 里这些模型暂时没有
+> `context_window` / `max_output_tokens`，面板上会显示为空。后续如需精确值，
+> 可参考各上游厂商文档手工补，或等 1min 在接口里加这个字段。
+
+---
+
 ## 2026-10-23 · 按建议落地：WAF 自愈 / 存活监控 / 恢复演练 / 指标口径（2.9.15 → 2.9.16）
 
 老板：「剩下的可选项有啥好的建议吗」→「按你的建议来」。

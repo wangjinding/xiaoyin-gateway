@@ -3883,6 +3883,29 @@ async def feedback_all(request: Request, _auth=Depends(require_auth)):
     return {"items": _feedback.all(), "cap": FEEDBACK_CAP}
 
 
+@app.get("/feedback/pending-count")
+async def feedback_pending_count(request: Request, _auth=Depends(require_auth)):
+    """用户反馈的待办数量（未处理 pending + 处理中 doing），给侧边栏菜单红点用。
+
+    2026-10-30（老板）：菜单上要显示待办数量。
+    单开一个轻量端点而不是复用 GET /feedback —— 后者会把全部条目（含图片 base64）
+    一起吐出来，侧边栏每 30 秒轮询一次太浪费；这里只回三个数字。
+    已归档（archived）的不计入待办：归档 = 收件箱里收起来了。
+    """
+    _require_admin(request)
+    items = _feedback.all()
+    pending = doing = 0
+    for it in items:
+        if it.get("archived"):
+            continue
+        st = it.get("status") or "pending"
+        if st == "pending":
+            pending += 1
+        elif st == "doing":
+            doing += 1
+    return {"pending": pending, "doing": doing, "total": pending + doing}
+
+
 @app.patch("/feedback/{fid}/archive")
 async def feedback_archive(request: Request, fid: str, _auth=Depends(require_auth)):
     """归档/取消归档（admin 收件箱整理用）。只打标记：不动数据、不动处理状态。"""
@@ -4218,6 +4241,62 @@ async def health(request: Request, _auth=Depends(require_auth_or_open)):
         },
         "models": model_health,
     }
+
+
+# ── OpenCode Go 套餐用量 ────────────────────────────────────────────────────
+# 2026-10-30（老板）：模型与供应商页的供应商卡片要显示 OpenCode Go 套餐余量，每 10 秒刷新。
+#
+# 官方文档**没有**列出这个端点 —— /v2/docs/console/api/inference 只文档了
+#   /v1/chat/completions、/v1/messages、/v1/models、/v1/responses 四条线。
+# 但实测 GET {base_url}/usage 可用（2026-10-30 真实 key 验证），返回：
+#   {"usage":{"rolling":{"status":"ok","percent":0,"resetsAt":"..."},
+#             "weekly":{"status":"ok","percent":17,"resetsAt":"..."},
+#             "monthly":{"status":"ok","percent":45,"resetsAt":"..."}}}
+# 三个窗口分别对应滚动窗口 / 周额度 / 月度额度。
+#
+# 两个硬性要求（实测）：
+#   · Authorization: Bearer <key>     —— 不带 → 401 AuthError
+#   · User-Agent 用专属标识（官方反滥用策略要求）—— 用供应商配置里的 extra_headers 那条
+#   · 只支持 GET（HEAD 会 404）
+#   · 不需要 x-opencode-session（那个头只有推理接口才必须）
+#
+# 缓存 8 秒：前端 10 秒轮询一次，多开几个标签页也只打上游 ~1 次/8 秒，不烧额度。
+_OC_USAGE_CACHE: dict = {"at": 0.0, "data": None}
+
+
+@app.get("/providers/opencode/usage")
+async def opencode_go_usage(_auth=Depends(require_auth)):
+    """OpenCode Go 套餐用量（rolling / weekly / monthly），带 8 秒缓存。"""
+    now = time.time()
+    if _OC_USAGE_CACHE["data"] is not None and now - _OC_USAGE_CACHE["at"] < 8:
+        return _OC_USAGE_CACHE["data"]
+
+    cfg = _cfg()
+    pconfig = cfg.providers.get("opencode")
+    if pconfig is None:
+        raise HTTPException(404, "未配置 opencode 供应商")
+    token = pconfig.auth.resolve_token()
+    if not token:
+        raise HTTPException(503, "OpenCode Go 未配置 API Key")
+
+    base = str(pconfig.base_url or "https://opencode.ai/zen/go/v1").rstrip("/")
+    ua = (pconfig.extra_headers or {}).get("User-Agent") or f"api-gateway/{VERSION}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{base}/usage",
+                headers={"Authorization": f"Bearer {token}", "User-Agent": ua},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"OpenCode Go 用量接口返回 {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(502, f"查询 OpenCode Go 用量失败: {e}")
+
+    _OC_USAGE_CACHE["at"] = now
+    _OC_USAGE_CACHE["data"] = data
+    return data
 
 
 @app.get("/health/{provider_key}")

@@ -6,6 +6,189 @@
 # 说明：本文件是项目的**唯一配置文件**（run.py 默认读取；GATEWAY_CONFIG 可覆盖）。
 
 providers:
+  onemin:
+    name: "1min.AI"
+    base_url: "https://api.1min.ai/openai/v1"
+    auth:
+      token_env: "ONEMIN_API_KEY"
+    extra_headers: {}
+    # 2026-10-31 新增：1min.AI 的 OpenAI 兼容端点（https://api.1min.ai/openai/v1）
+    #   支持 /models、/chat/completions；聚合 OpenAI / DeepSeek / Qwen / GLM / Mistral / Kimi
+    #   ⚠️ 与 opencode 重名的模型（glm-5.x / qwen3.7-plus / deepseek-v4-pro / gpt-5.6-luna 等）
+    #      已从本供应商剔除，保证 opencode 仍是主路由，不被 onemin 抢占。
+    models:
+      - id: "qwen3.7-max"
+        display_name: "Qwen3.7-max"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "qwen3.7-flash"
+        display_name: "Qwen3.7-flash"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "qwen3.6-plus"
+        display_name: "Qwen3.6-plus"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "qwen3.6-flash"
+        display_name: "Qwen3.6-flash"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "qwen-plus"
+        display_name: "Qwen-plus"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "qwen-max"
+        display_name: "Qwen-max"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "qwen-flash"
+        display_name: "Qwen-flash"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "deepseek-flash"
+        display_name: "DeepSeek-flash"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "magistral-small-latest"
+        display_name: "Magistral-small-latest"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "magistral-medium-latest"
+        display_name: "Magistral-medium-latest"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "ministral-14b-latest"
+        display_name: "Ministral-14b-latest"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "open-mistral-nemo"
+        display_name: "Open Mistral-nemo"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "mistral-small-latest"
+        display_name: "Mistral-small-latest"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "mistral-small-2603"
+        display_name: "Mistral-small-2603"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "mistral-medium-latest"
+        display_name: "Mistral-medium-latest"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "mistral-medium-3-5"
+        display_name: "Mistral-medium-3-5"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "mistral-large-latest"
+        display_name: "Mistral-large-latest"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "mistral-large-2512"
+        display_name: "Mistral-large-2512"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-6-sol"
+        display_name: "GPT-6-sol"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-6-astra"
+        display_name: "GPT-6-astra"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.6-terra"
+        display_name: "GPT-5.6-terra"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.6-sol"
+        display_name: "GPT-5.6-sol"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.5"
+        display_name: "GPT-5.5"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.4-nano"
+        display_name: "GPT-5.4-nano"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.4-mini"
+        display_name: "GPT-5.4-mini"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.4"
+        display_name: "GPT-5.4"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.2"
+        display_name: "GPT-5.2"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5.1"
+        display_name: "GPT-5.1"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5-nano"
+        display_name: "GPT-5-nano"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5-mini"
+        display_name: "GPT-5-mini"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-5"
+        display_name: "GPT-5"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-4o-mini"
+        display_name: "GPT-4o-mini"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-4o"
+        display_name: "GPT-4o"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-4.1-mini"
+        display_name: "GPT-4.1-mini"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "gpt-4.1"
+        display_name: "GPT-4.1"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "o3"
+        display_name: "o3"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "moonshotai/kimi-k2.7-code"
+        display_name: "Moonshot kimi-k2.7-code"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "moonshotai/kimi-k2.6"
+        display_name: "Moonshot kimi-k2.6"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "meta/muse-spark-1.3"
+        display_name: "Meta muse-spark-1.3"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "meta/muse-spark-1.2"
+        display_name: "Meta muse-spark-1.2"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "meta/muse-spark-1.1"
+        display_name: "Meta muse-spark-1.1"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "glm-5.1"
+        display_name: "GLM-5.1"
+        type: "text"
+        protocols: ["chat/completions"]
+      - id: "glm-5"
+        display_name: "GLM-5"
+        type: "text"
+        protocols: ["chat/completions"]
   agnes:
     name: "Agnes AI"
     base_url: "https://api.agnes-ai.cn/v1"
@@ -280,14 +463,6 @@ providers:
         # 2026-09-21 新增；实测 responses 200（官方文档表同样标 responses）
         protocols: ["responses"]
       # 2026-09-27 自动同步：官方文档新增（scripts/sync_models.py）
-      - id: "longcat-2.5-preview-free"
-        display_name: "Longcat 2.5 Preview Free"
-        type: "text"
-        context_window: 1000000    # 同步 2026-09-28（scripts/sync_models.py）
-        max_output_tokens: 131072    # 同步 2026-09-28（scripts/sync_models.py）
-        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
-        protocols: ["chat/completions"]
-        free: true     # 官方价格表标 Free
       # 2026-10-07 自动同步：官方文档新增（scripts/sync_models.py）
       # 2026-10-08 自动同步：官方文档新增（scripts/sync_models.py）
       - id: "claude-haiku-5-5"
@@ -311,8 +486,27 @@ providers:
       - id: "minimax-m3.1-flash"
         display_name: "Minimax M3.1 Flash"
         type: "text"
+        context_window: 1000000    # 同步 2026-10-24（scripts/sync_models.py）
+        max_output_tokens: 512000    # 同步 2026-10-24（scripts/sync_models.py）
         # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
         protocols: ["chat/completions"]
+      # 2026-10-24 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "kimi-k3.1-pro"
+        display_name: "Kimi K3.1 Pro"
+        type: "text"
+        context_window: 1048576    # 同步 2026-10-25（scripts/sync_models.py）
+        max_output_tokens: 131072    # 同步 2026-10-25（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+      # 2026-10-27 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "iceman-contributor-free"
+        display_name: "Iceman Contributor Free"
+        type: "text"
+        context_window: 262144    # 同步 2026-10-28（scripts/sync_models.py）
+        max_output_tokens: 131072    # 同步 2026-10-28（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+        free: true     # 官方价格表标 Free
       # 2026-10-09 自动同步：官方文档新增（scripts/sync_models.py）
   # ── Dots AI（小红书 Dots Studio，第三十六轮新增）──────────────
   # 官方文档：https://dots.ai/platform/docs（2026-09-28 通读）

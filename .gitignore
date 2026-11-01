@@ -63,3 +63,8 @@ dist/
 data/calllog.db
 data/calllog.db-wal
 data/calllog.db-shm
+
+# 编辑器/手工备份（2026-11-01 补）
+*.bak-*
+*.bak
+*.orig

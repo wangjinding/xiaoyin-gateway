@@ -22,6 +22,10 @@
         >
           <Icon :name="m.icon" :size="18" />
           <span>{{ t(`nav.menu${m.key}`) }}</span>
+          <!-- 用户反馈待办数（未处理 + 处理中）。只有管理员能看到这一项，非管理员请求会 403，
+               这里静默不显示，不打扰。 -->
+          <span v-if="m.key === 'feedbackinbox'" class="nav-badge"
+                :title="t('nav.feedbackTodoTip', { n: todoCount })">{{ todoCount > 99 ? '99+' : todoCount }}</span>
         </router-link>
       </template>
     </nav>
@@ -29,9 +33,11 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Icon from '../components/Icon.vue'
+import { api } from '../api'
 import type { NavGroup } from '../lib/nav'
 
 // 第二十二轮：删掉侧栏底部那两行（「B · 素白蓝紫」+「v2.4.0 · 控制台」）。
@@ -46,6 +52,30 @@ function isActive(path: string): boolean {
   return route.path === path || route.path.startsWith(path + '/')
 }
 void props
+
+// ── 用户反馈待办数（未处理 + 处理中）──────────────────────────────────────
+//   2026-10-30（老板）：菜单上要显示待办数量。
+//   模块级 ref：桌面侧栏和手机抽屉是两个组件实例，共用同一份数字，只轮询一次。
+const todoCount = ref(0)
+let todoTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadTodo() {
+  try {
+    const j = await api('/feedback/pending-count')
+    todoCount.value = Number(j && j.total) || 0
+  } catch {
+    // 非管理员（403）或未登录 → 不显示徽标，不报错
+    todoCount.value = 0
+  }
+}
+
+onMounted(() => {
+  loadTodo()
+  todoTimer = setInterval(loadTodo, 30_000)
+})
+onUnmounted(() => {
+  if (todoTimer) { clearInterval(todoTimer); todoTimer = null }
+})
 </script>
 
 <style scoped>
@@ -54,6 +84,16 @@ void props
   background: var(--surface); padding: 14px 12px; overflow: hidden;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 12px; }
+/* 菜单项右侧的待办红点：贴在文字后面靠右，不挤图标 */
+.nav-badge {
+  margin-left: auto;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px;
+  background: #ef4444; color: #fff;
+  font-size: 11px; font-weight: 600; line-height: 18px;
+  text-align: center; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--surface);
+}
 .logo {
   width: 32px; height: 32px; border-radius: 10px; background: var(--primary);
   color: var(--primary-ink); display: grid; place-items: center; flex: none;
