@@ -25,6 +25,7 @@ const router = createRouter({
         { path: 'keys', name: 'keys', component: () => import('./views/ApiKeys.vue') },
         { path: 'users', name: 'users', component: () => import('./views/Users.vue'), meta: { admin: true } },
         { path: 'feedback-inbox', name: 'feedbackinbox', component: () => import('./views/FeedbackInbox.vue'), meta: { admin: true } },
+        { path: 'banned', name: 'banned', component: () => import('./views/Banned.vue'), meta: { admin: true } },
         { path: 'feedback', name: 'feedback', component: () => import('./views/Feedback.vue'), meta: { memberOnly: true } },
         { path: 'gateway-config', name: 'gatewaycfg', component: () => import('./views/GatewayConfig.vue'), meta: { admin: true } },
         { path: 'logs', name: 'logs', component: () => import('./views/Logs.vue') },

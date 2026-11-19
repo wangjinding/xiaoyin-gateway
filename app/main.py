@@ -953,6 +953,19 @@ async def _validate_callback_url(raw: str | None, allow_private: bool) -> None:
 # ── IP 级鉴权失败限流（安全报告：中低危——无 IP 限流可暴力枚举 / 刷流量）──
 _AUTH_FAILS: dict[str, deque] = {}
 _AUTH_FAIL_MAX_IPS = 1000   # 最多跟踪的 IP，超限清空一次（防内存膨胀）
+# 2026-11-06: 鉴权失败超限后拉黑一段时间（默认 1 小时），期间该 IP 一律 429。
+#   key=IP, value=解封时间戳(time.time())。只影响这一个 IP，不波及其他来源。
+_BANNED: dict[str, float] = {}
+_BANNED_MAX_IPS = 10000      # 最多跟踪的封禁 IP，超限清最旧的一批（防内存膨胀）
+# 封禁备注（手动封禁时可填「谁、为什么」），与 _BANNED 同生命周期，解封/过期时一并清掉。
+_BAN_NOTES: dict[str, str] = {}
+# 永久封禁（不随时间过期）。与 _BANNED 分开存，免得拿"极大时间戳"糊弄，
+# 导致剩余时间算出天文数字、前端还得猜哪个算永久。
+_BANNED_FOREVER: set[str] = set()
+# 封禁操作历史（封/解封/延长），落盘 JSONL，重启不丢。只保留最近 _BAN_HISTORY_MAX 条。
+_BAN_HISTORY: list[dict] = []
+_BAN_HISTORY_MAX = 500
+_BAN_HISTORY_FILE = Path(__file__).resolve().parent.parent / "data" / "ban_history.jsonl"
 
 
 _TRUSTED_PROXY_IPS = {"127.0.0.1", "::1"}   # 本机反代（nginx/openresty）：只有它写的 XFF 可信
@@ -979,10 +992,142 @@ def _client_ip(request: Request) -> str:
     return peer or "unknown"
 
 
-def _record_auth_fail(request: Request, limit_per_min: int) -> bool:
-    """记录一次鉴权失败；返回 True 表示该来源 60s 内已超限（应直接 429）。"""
+def _ban_remaining(ip: str) -> int:
+    """该 IP 还要被限制的秒数：0=未封禁，-1=永久封禁，>0=剩余秒数。
+
+    顺带清理已过期的定时封禁（投机清理，不要求调用方配合）。
+    """
+    if ip in _BANNED_FOREVER:
+        return -1
+    exp = _BANNED.get(ip)
+    if exp is None:
+        return 0
+    left = int(exp - time.time())
+    if left <= 0:
+        _BANNED.pop(ip, None)
+        _BAN_NOTES.pop(ip, None)
+        return 0
+    return left
+
+
+def _ban_history_add(action: str, ip: str, *, seconds: int = 0,
+                     note: str = "", actor: str = "", permanent: bool = False) -> None:
+    """记一条封禁操作历史（封/解封/延长/清空），并追加到 JSONL。
+
+    历史上限 _BAN_HISTORY_MAX 条（内存），文件则是纯追加、由运维按需轮转。
+    落盘失败不影响主流程 —— 封禁本身比日志重要。
+    """
+    item = {
+        "id": uuid.uuid4().hex[:12],   # 删除时用的稳定标识（时间戳会撞，不能用）
+        "ts": int(time.time()),
+        "action": action,          # ban / manual_ban / unban / unban_all / extend / auto_ban
+        "ip": ip,
+        "seconds": seconds,
+        "permanent": permanent,
+        "note": note,
+        "actor": actor,
+    }
+    _BAN_HISTORY.append(item)
+    if len(_BAN_HISTORY) > _BAN_HISTORY_MAX:
+        del _BAN_HISTORY[: len(_BAN_HISTORY) - _BAN_HISTORY_MAX]
+    try:
+        _BAN_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _BAN_HISTORY_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+    except OSError as e:
+        log.warning("封禁历史上写盘失败（不影响封禁本身）：%s", e)
+
+
+def _ban_history_save() -> None:
+    """把内存里的历史整体重写到 JSONL（删除后调用）。
+
+    为什么不是「删文件里某一行」：JSONL 没有索引，原地删要读全量再写回，
+    代价和整体重写一样，但整体重写不会留下空洞或半行，更安全。
+    """
+    try:
+        _BAN_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _BAN_HISTORY_FILE.with_suffix(".jsonl.tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            for h in _BAN_HISTORY:
+                fh.write(json.dumps(h, ensure_ascii=False) + "\n")
+        tmp.replace(_BAN_HISTORY_FILE)   # 原子替换，避免写一半被读到
+    except OSError as e:
+        log.warning("封禁历史重写盘失败（不影响封禁本身）：%s", e)
+
+
+def _ban_history_load() -> None:
+    """启动时把历史文件读回内存（文件丢了/坏了就当空历史，不阻塞启动）。
+
+    老版本写的行没有 id，这里补一个，保证删除接口对历史数据同样可用。
+    """
+    try:
+        if not _BAN_HISTORY_FILE.is_file():
+            return
+        with _BAN_HISTORY_FILE.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    h = json.loads(line)
+                except json.JSONDecodeError:
+                    continue          # 半行/坏行直接跳过，别为一条脏数据拖垮整个历史
+                if not isinstance(h, dict):
+                    continue
+                h.setdefault("id", uuid.uuid4().hex[:12])
+                for k, dv in (("ts", 0), ("action", "unknown"), ("ip", ""), ("seconds", 0),
+                              ("permanent", False), ("note", ""), ("actor", "")):
+                    h.setdefault(k, dv)
+                _BAN_HISTORY.append(h)
+        if len(_BAN_HISTORY) > _BAN_HISTORY_MAX:
+            del _BAN_HISTORY[: len(_BAN_HISTORY) - _BAN_HISTORY_MAX]
+        log.info("封禁历史已载入 %d 条", len(_BAN_HISTORY))
+    except OSError as e:
+        log.warning("封禁历史读取失败（按空历史启动）：%s", e)
+
+
+_ban_history_load()
+
+
+def _record_auth_fail(request: Request, limit_per_min: int, ban_seconds: int = 3600) -> int:
+    """记录一次鉴权失败。
+
+    返回 0 表示还没到限流阈值（调用方按原样回 401）；
+    返回 >0 表示该来源应被 429，值是**还要等多少秒**：
+      - 已被拉黑 → 剩余拉黑秒数
+      - 本次刚触发 → ban_seconds（>0 时顺便写入封禁表）
+
+    2026-11-06: 从「只限流 60 秒」改成「超限即拉黑 ban_seconds 秒（默认 1 小时）」。
+    只针对该 IP，其他来源完全不受影响。
+    """
     ip = _client_ip(request)
     now = time.time()
+
+    # 2026-11-06 安全网：回环 / 私网 / 本机反代永不拉黑。
+    #   原因：网关只监听 127.0.0.1，正常流量都经 OpenResty 回源（带 XFF，能拿到真实 IP）；
+    #   但如果某次 XFF 缺失，_client_ip 会退回 peer=127.0.0.1 —— 一旦拉黑它，
+    #   等于把**所有人**一起封死。这里直接豁免，宁可少封一个也不误伤全局。
+    if ip in ("127.0.0.1", "::1", "localhost", "unknown", ""):
+        dq0 = _AUTH_FAILS.get(ip)
+        if dq0 is None:
+            if len(_AUTH_FAILS) >= _AUTH_FAIL_MAX_IPS:
+                _AUTH_FAILS.clear()
+            dq0 = deque()
+            _AUTH_FAILS[ip] = dq0
+        dq0.append(now)
+        while dq0 and now - dq0[0] > 60.0:
+            dq0.popleft()
+        # 仍然返回限流（保护服务），但不写封禁表
+        return 60 if len(dq0) >= limit_per_min else 0
+    if ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."):
+        return 0   # 内网来源不参与封禁（自家设备误配 Key 不该被锁死）
+
+    # 已在封禁期内（含永久）：直接返回，不再累计。
+    #   注意 left 可能是 -1（永久），所以判断用真值而不是 >0。
+    left = _ban_remaining(ip)
+    if left:
+        return left
+
     dq = _AUTH_FAILS.get(ip)
     if dq is None:
         if len(_AUTH_FAILS) >= _AUTH_FAIL_MAX_IPS:
@@ -992,7 +1137,22 @@ def _record_auth_fail(request: Request, limit_per_min: int) -> bool:
     dq.append(now)
     while dq and now - dq[0] > 60.0:
         dq.popleft()
-    return len(dq) >= limit_per_min
+
+    if len(dq) >= limit_per_min:
+        # 触发限流：清掉计数，按需写入封禁表
+        _AUTH_FAILS.pop(ip, None)
+        if ban_seconds > 0:
+            if len(_BANNED) >= _BANNED_MAX_IPS:
+                # 清掉最早解封的一批（保留最近的一半）
+                keep = sorted(_BANNED.items(), key=lambda kv: kv[1])[-_BANNED_MAX_IPS // 2:]
+                _BANNED.clear()
+                _BANNED.update(dict(keep))
+            _BANNED[ip] = now + ban_seconds
+            _BAN_NOTES.pop(ip, None)
+            log.warning("鉴权失败超限，拉黑 IP %s 共 %d 秒", ip, ban_seconds)
+            return ban_seconds
+        return 60
+    return 0
 
 
 def _key_token(key: str) -> str | None:
@@ -1127,8 +1287,12 @@ async def require_auth(
             log.info("已停用账号 %s 的 API Key 被调用，已拒绝（%s %s）",
                      owner, request.method, request.url.path)
             raise HTTPException(403, "账号已被停用，请联系管理员")
-        if _record_auth_fail(request, cfg.server.auth_fail_limit_per_min):
-            raise HTTPException(429, "鉴权失败次数过多，已在 60 秒内触发限流，请稍后重试")
+        _wait = _record_auth_fail(request, cfg.server.auth_fail_limit_per_min,
+                                  cfg.server.auth_fail_ban_seconds)
+        if _wait:
+            _mins = max(1, (_wait + 59) // 60)
+            raise HTTPException(429, f"鉴权失败次数过多，该 IP 已被限制访问，请 {_mins} 分钟后重试",
+                                headers={"Retry-After": str(_wait)})
         raise HTTPException(401, "无效或缺失的账号 / API Key", headers={"WWW-Authenticate": "Bearer"})
     account, role, kind = identity
     _set_identity(request, account, role)
@@ -3550,8 +3714,12 @@ async def auth_login(request: Request):
     username = str(body.get("username") or "").strip()
     password = str(body.get("password") or "")
     if not username or not await _offload(_users.verify, username, password):
-        if _record_auth_fail(request, _cfg().server.auth_fail_limit_per_min):
-            raise HTTPException(429, "登录失败次数过多，已在 60 秒内触发限流，请稍后重试")
+        _wait = _record_auth_fail(request, _cfg().server.auth_fail_limit_per_min,
+                                  _cfg().server.auth_fail_ban_seconds)
+        if _wait:
+            _mins = max(1, (_wait + 59) // 60)
+            raise HTTPException(429, f"登录失败次数过多，该 IP 已被限制访问，请 {_mins} 分钟后重试",
+                                headers={"Retry-After": str(_wait)})
         raise HTTPException(401, "账号或密码错误", headers={"WWW-Authenticate": "Bearer"})
     # 第二十四轮: 账号被管理员停用 → 密码对也不发会话，并明确告知原因（让人知道去找管理员，
     # 而不是反复试密码）。校验顺序在口令之后：不知道密码的人依旧只看到 401，探不出账号状态。
@@ -3759,6 +3927,226 @@ def _require_session(request: Request) -> str:
 
 
 # ── 各账号自管 API Key（默认无，页面自建） ──
+# ── 鉴权失败拉黑管理（2026-11-06，仅管理员）────────────────────────────
+#   对应 _BANNED 字典（_record_auth_fail 写入）。只读 + 解封，不提供"手动封禁"
+#   —— 手动封禁走 iptables/防火墙更合适，这里只负责查看和放行误封的 IP。
+@app.get("/admin/banned")
+async def admin_list_banned(request: Request, _auth=Depends(require_auth)):
+    """列出当前被封禁的 IP（仅管理员）。"""
+    _require_admin(request)
+    now = time.time()
+    items = []
+    for ip, exp in list(_BANNED.items()):
+        left = int(exp - now)
+        if left <= 0:
+            _BANNED.pop(ip, None)
+            _BAN_NOTES.pop(ip, None)
+            continue
+        items.append({
+            "ip": ip,
+            "banned_until": int(exp),
+            "remaining_seconds": left,
+            "remaining_minutes": (left + 59) // 60,
+            "note": _BAN_NOTES.get(ip, ""),
+            "permanent": False,
+        })
+    # 永久封禁排在最后（没有解封时间，按 IP 排）
+    for ip in sorted(_BANNED_FOREVER):
+        items.append({
+            "ip": ip,
+            "banned_until": 0,
+            "remaining_seconds": -1,
+            "remaining_minutes": -1,
+            "note": _BAN_NOTES.get(ip, ""),
+            "permanent": True,
+        })
+    items.sort(key=lambda x: (x["permanent"], x["banned_until"] or 0))
+    return {
+        "count": len(items),
+        "ban_seconds": _cfg().server.auth_fail_ban_seconds,
+        "auth_fail_limit_per_min": _cfg().server.auth_fail_limit_per_min,
+        "items": items,
+    }
+
+
+@app.post("/admin/banned")
+async def admin_ban(request: Request, _auth=Depends(require_auth)):
+    """手动封禁一个 IP（仅管理员）。
+
+    参数：{"ip": "1.2.3.4", "seconds": 3600}；seconds 缺省用 server.auth_fail_ban_seconds。
+    与自动拉黑共用 _BANNED 表，所以能在列表里看到、也能被同一个解封接口放行。
+    白名单（回环/私网）同样豁免 —— 手动也封不掉本机反代，避免一键把全站弄挂。
+    """
+    _require_admin(request)
+    body = await _json_object(request)
+    ip = str(body.get("ip") or "").strip()
+    if not ip:
+        raise HTTPException(400, "缺少参数 ip")
+    # 只接受 IPv4/IPv6 字面量，挡住把整段/域名/通配塞进来的误操作
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise HTTPException(400, f"不是合法的 IP 地址: {ip}")
+    if ip in ("127.0.0.1", "::1", "localhost", "unknown", "") or ip.startswith(("10.", "192.168.", "172.")):
+        raise HTTPException(400, "回环/内网地址不允许手动封禁（会把本机反代或自家设备一起锁死）")
+
+    permanent = bool(body.get("permanent"))
+    default_sec = _cfg().server.auth_fail_ban_seconds or 3600
+    if permanent:
+        seconds = 0
+    else:
+        raw_sec = body.get("seconds")
+        try:
+            seconds = int(raw_sec) if raw_sec is not None else default_sec
+        except (TypeError, ValueError):
+            raise HTTPException(400, "seconds 必须是整数（秒）")
+        if seconds < 60 or seconds > 30 * 86400:
+            raise HTTPException(400, "seconds 需在 60 ~ 2592000（30 天）之间（永久请传 permanent=true）")
+
+    now = time.time()
+    note = str(body.get("note") or "").strip()[:120]
+    if permanent:
+        _BANNED.pop(ip, None)
+        _BANNED_FOREVER.add(ip)
+        banned_until = 0
+    else:
+        if len(_BANNED) >= _BANNED_MAX_IPS:
+            keep = sorted(_BANNED.items(), key=lambda kv: kv[1])[-_BANNED_MAX_IPS // 2:]
+            _BANNED.clear()
+            _BANNED.update(dict(keep))
+        _BANNED_FOREVER.discard(ip)
+        _BANNED[ip] = now + seconds
+        banned_until = int(now + seconds)
+    _AUTH_FAILS.pop(ip, None)
+    if note:
+        _BAN_NOTES[ip] = note
+    else:
+        _BAN_NOTES.pop(ip, None)
+    log.warning("管理员 %s 手动封禁 IP %s %s%s", request.state.account, ip,
+                "（永久）" if permanent else f"共 {seconds} 秒",
+                f"（备注：{note}）" if note else "")
+    _ban_history_add("manual_ban", ip, seconds=seconds, note=note,
+                     actor=request.state.account, permanent=permanent)
+    return {"status": "ok", "ip": ip, "banned_seconds": seconds,
+            "banned_until": banned_until, "permanent": permanent}
+
+
+@app.put("/admin/banned/{ip}")
+async def admin_extend(request: Request, ip: str, _auth=Depends(require_auth)):
+    """延长某 IP 的封禁（仅管理员）。
+
+    参数：{"seconds": 3600} 或 {"permanent": true}。
+    语义是**在当前剩余时间上加**，不是重置 —— 所以连点两次「延长 1 小时」= 续 2 小时。
+    """
+    _require_admin(request)
+    body = await _json_object(request)
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise HTTPException(400, f"不是合法的 IP 地址: {ip}")
+
+    if ip not in _BANNED and ip not in _BANNED_FOREVER:
+        raise HTTPException(404, f"{ip} 当前没有被封禁，无法延长")
+
+    permanent = bool(body.get("permanent"))
+    now = time.time()
+    if permanent:
+        _BANNED.pop(ip, None)
+        _BANNED_FOREVER.add(ip)
+        total = 0
+    else:
+        raw_sec = body.get("seconds")
+        try:
+            seconds = int(raw_sec) if raw_sec is not None else (_cfg().server.auth_fail_ban_seconds or 3600)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "seconds 必须是整数（秒）")
+        if seconds < 60 or seconds > 30 * 86400:
+            raise HTTPException(400, "seconds 需在 60 ~ 2592000（30 天）之间")
+        if ip in _BANNED_FOREVER:
+            # 永久封禁没有"剩余时间"可加，先转成定时再算
+            _BANNED_FOREVER.discard(ip)
+            base = now
+        else:
+            base = max(_BANNED.get(ip, now), now)
+        _BANNED[ip] = base + seconds
+        total = seconds
+    log.warning("管理员 %s 延长 IP %s 的封禁：%s", request.state.account, ip,
+                "改为永久" if permanent else f"+{total} 秒")
+    _ban_history_add("extend", ip, seconds=total, actor=request.state.account, permanent=permanent)
+    return {"status": "ok", "ip": ip, "extended_seconds": total, "permanent": permanent}
+
+
+@app.get("/admin/banned/history")
+async def admin_ban_history(request: Request, limit: int = 50, ip: str | None = None,
+                            _auth=Depends(require_auth)):
+    """封禁操作历史（仅管理员）。默认最近 50 条，可按 IP 过滤。"""
+    _require_admin(request)
+    rows = _BAN_HISTORY
+    if ip:
+        rows = [h for h in rows if h.get("ip") == ip]
+    rows = rows[-max(1, min(limit, _BAN_HISTORY_MAX)):]
+    return {"count": len(rows), "items": list(reversed(rows))}
+
+
+# ⚠️ 顺序敏感：下面两个必须以 "history" 结尾的路由**声明在** DELETE /admin/banned/{ip}
+#   之前，否则 FastAPI 会把 "history" 当成一个 IP 交给解封接口处理。
+@app.delete("/admin/banned/history/{hid}")
+async def admin_ban_history_delete(request: Request, hid: str, _auth=Depends(require_auth)):
+    """删除一条封禁历史（仅管理员）。只动历史记录，不影响任何实际封禁。"""
+    _require_admin(request)
+    keep = [h for h in _BAN_HISTORY if h.get("id") != hid]
+    if len(keep) == len(_BAN_HISTORY):
+        raise HTTPException(404, f"找不到历史记录 {hid}")
+    _BAN_HISTORY[:] = keep
+    _ban_history_save()
+    log.info("管理员 %s 删除封禁历史 %s", request.state.account, hid)
+    return {"status": "ok", "id": hid}
+
+
+@app.delete("/admin/banned/history")
+async def admin_ban_history_clear(request: Request, _auth=Depends(require_auth)):
+    """清空全部封禁历史（仅管理员）。只动历史记录，不影响任何实际封禁。"""
+    _require_admin(request)
+    n = len(_BAN_HISTORY)
+    _BAN_HISTORY.clear()
+    _ban_history_save()
+    log.info("管理员 %s 清空封禁历史（共 %d 条）", request.state.account, n)
+    return {"status": "ok", "cleared": n}
+
+
+@app.delete("/admin/banned/{ip}")
+async def admin_unban(request: Request, ip: str, _auth=Depends(require_auth)):
+    """解除某个 IP 的封禁（仅管理员）。"""
+    _require_admin(request)
+    # set.discard() 恒返回 None，不能拿它判断"是否存在"，必须先查成员再删
+    was_timed = _BANNED.pop(ip, None) is not None
+    was_forever = ip in _BANNED_FOREVER
+    _BANNED_FOREVER.discard(ip)
+    existed = was_timed or was_forever
+    _AUTH_FAILS.pop(ip, None)   # 连失败计数一起清，避免刚放行又被立刻封回去
+    _BAN_NOTES.pop(ip, None)
+    log.info("管理员 %s 解除 IP %s 的封禁（原本存在=%s）",
+             request.state.account, ip, existed)
+    if existed:
+        _ban_history_add("unban", ip, actor=request.state.account)
+    return {"status": "ok", "ip": ip, "was_banned": existed}
+
+
+@app.delete("/admin/banned")
+async def admin_unban_all(request: Request, _auth=Depends(require_auth)):
+    """清空全部封禁（仅管理员）。用于批量误封后的快速恢复。"""
+    _require_admin(request)
+    n = len(_BANNED) + len(_BANNED_FOREVER)
+    _BANNED.clear()
+    _BANNED_FOREVER.clear()
+    _BAN_NOTES.clear()
+    _AUTH_FAILS.clear()
+    log.info("管理员 %s 清空全部封禁（共 %d 个 IP）", request.state.account, n)
+    if n:
+        _ban_history_add("unban_all", "*", actor=request.state.account, note=f"清空 {n} 个")
+    return {"status": "ok", "cleared": n}
+
+
 @app.get("/auth/apikeys")
 async def auth_list_apikeys(request: Request, _auth=Depends(require_auth)):
     """列出本账号 Key（含明文，便于反复复制）。

@@ -45,6 +45,7 @@ export function navGroups(isAdmin: boolean): NavGroup[] {
   // 第二十二轮定稿：管理员只处理反馈（「用户反馈」），不提意见 —— 所以这两项互斥。
   if (isAdmin) sys.push({ path: '/users', key: 'users', icon: 'users' })
   if (isAdmin) sys.push({ path: '/feedback-inbox', key: 'feedbackinbox', icon: 'inbox' })
+  if (isAdmin) sys.push({ path: '/banned', key: 'banned', icon: 'ban' })
   // 第二十三轮追加：老板要求「网关配置先不要删掉、先隐藏起来，这块先不支持页面配置」→
   // 入口由 `lib/features.ts` 的开关统一控制（页面与路由都还在，只是不挂出来）。
   if (isAdmin && GATEWAY_CONFIG_ENABLED) sys.push({ path: '/gateway-config', key: 'gatewaycfg', icon: 'sliders' })

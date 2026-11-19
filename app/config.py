@@ -327,6 +327,7 @@ class ServerConfig:
     webhook_allow_private: bool = False  # 视频 callback_url 是否允许指向内网/回环地址（SSRF 防护，默认否）
     docs_enabled: bool = False           # 是否开放 FastAPI 文档（/docs、/redoc、/openapi.json）——安全默认关
     auth_fail_limit_per_min: int = 20    # 同一来源 IP 每分钟允许的鉴权失败次数，超过 → 429（防暴力枚举）
+    auth_fail_ban_seconds: int = 3600    # 超限后拉黑时长（秒）；2026-11-06 新增，0=只限流不拉黑
 
 
 @dataclass
@@ -861,6 +862,8 @@ def parse_config(raw: dict[str, Any]) -> GatewayConfig:
         docs_enabled=_opt_bool(srv_raw.get("docs_enabled"), "server.docs_enabled", False),
         auth_fail_limit_per_min=_opt_int(srv_raw.get("auth_fail_limit_per_min"),
                                           "server.auth_fail_limit_per_min", 20, minimum=1),
+        auth_fail_ban_seconds=_opt_int(srv_raw.get("auth_fail_ban_seconds"),
+                                        "server.auth_fail_ban_seconds", 3600, minimum=0),
     )
 
     # 网关入口鉴权（客户端 key 数组，可配多用户）

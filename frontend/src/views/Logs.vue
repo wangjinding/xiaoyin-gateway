@@ -144,7 +144,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from '../api'
+import { api, errText } from '../api'
 import Icon from '../components/Icon.vue'
 import { stamp } from '../lib/download'
 import { useSessionStore } from '../store/session'
@@ -209,7 +209,7 @@ async function loadFull(row: any) {
     row.respLen = d.completion_len || 0
     row.full = true
   } catch (e: any) {
-    row.fullErr = err(e)
+    row.fullErr = errText(e)
   } finally {
     row.fullLoading = false
   }
