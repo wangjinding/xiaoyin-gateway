@@ -232,8 +232,6 @@ providers:
       - id: "agnes-video-2.5-flash"
         display_name: "Agnes Video 2.5 Flash"
         type: "video"
-        free: true     # 2026-09-24 自动同步：文档「当前优惠」写当前限时免费（scripts/sync_models.py）
-        free_limited: true   # 限时免费；文档改口径后同步会自动撤掉这行
       # 2026-09-24 自动同步：官方文档新增（scripts/sync_models.py）
       - id: "agnes-2.5-pro"
         display_name: "Agnes 2.5 Pro"
@@ -263,6 +261,11 @@ providers:
         type: "text"
         context_window: 1000000    # 同步 2026-10-21（scripts/sync_models.py）
         max_output_tokens: 65536    # 同步 2026-10-21（scripts/sync_models.py）
+        # 文档现价 ¥3/M 输入、¥6/M 输出
+      # 2026-11-09 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "agnes-2.5-pro-theta"
+        display_name: "Agnes 2.5 Pro Theta"
+        type: "text"
         # 文档现价 ¥3/M 输入、¥6/M 输出
 
   opencode:
@@ -301,6 +304,7 @@ providers:
       responses:
         path: "/responses"
         auth: "bearer"
+    rate_limit_rps: 3.0       # 2026-11-06 新增：主动限流，避免被上游 429
     # ── 模型 ─────────────────────────────────────────────────
     # models[].protocols = 该模型**能用哪几条线**（入站格式必须与出站一致）。
     #   取值：chat/completions | messages | responses；不写 = 只认 chat/completions。
@@ -355,18 +359,6 @@ providers:
         context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
         max_output_tokens: 131072    # 最大输出（token）
         protocols: ["chat/completions"]
-      - id: "mimo-v2.5"
-        display_name: "MiMo V2.5"
-        type: "text"
-        context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 128000    # 最大输出（token）
-        protocols: ["chat/completions"]
-      - id: "mimo-v2.5-pro"
-        display_name: "MiMo V2.5 Pro"
-        type: "text"
-        context_window: 1048576    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 128000    # 最大输出（token）
-        protocols: ["chat/completions"]
       - id: "hy4-preview"
         display_name: "Hy4 Preview"
         type: "text"
@@ -398,7 +390,7 @@ providers:
         display_name: "Kimi K3"
         type: "text"
         context_window: 1048576    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 131072    # 最大输出（token）
+        max_output_tokens: 1048576    # 最大输出（token）
         protocols: ["chat/completions", "messages"]
       - id: "minimax-m3"
         display_name: "MiniMax M3"
@@ -495,7 +487,7 @@ providers:
         display_name: "Kimi K3.1 Pro"
         type: "text"
         context_window: 1048576    # 同步 2026-10-25（scripts/sync_models.py）
-        max_output_tokens: 131072    # 同步 2026-10-25（scripts/sync_models.py）
+        max_output_tokens: 1048576    # 同步 2026-10-25（scripts/sync_models.py）
         # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
         protocols: ["chat/completions"]
       # 2026-10-27 自动同步：官方文档新增（scripts/sync_models.py）
@@ -507,6 +499,41 @@ providers:
         # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
         protocols: ["chat/completions"]
         free: true     # 官方价格表标 Free
+      # 2026-11-06 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "hy4"
+        display_name: "Hy4"
+        type: "text"
+        context_window: 1048576    # 同步 2026-11-07（scripts/sync_models.py）
+        max_output_tokens: 65536    # 同步 2026-11-07（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+      # 2026-11-07 自动同步：官方文档新增（scripts/sync_models.py）
+      # 2026-11-10 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "longcat-2.5-free"
+        display_name: "Longcat 2.5 Free"
+        type: "text"
+        context_window: 1000000    # 同步 2026-11-10（scripts/sync_models.py）
+        max_output_tokens: 262144    # 同步 2026-11-10（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+        free: true     # 官方价格表标 Free
+      # 2026-11-16 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "hy4-flash-free"
+        display_name: "Hy4 Flash Free"
+        type: "text"
+        context_window: 1048576    # 同步 2026-11-19（scripts/sync_models.py）
+        max_output_tokens: 65536    # 同步 2026-11-19（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["chat/completions"]
+        free: true     # 官方价格表标 Free
+      # 2026-11-16 自动同步：官方文档新增（scripts/sync_models.py）
+      - id: "qwen4-max"
+        display_name: "Qwen4 Max"
+        type: "text"
+        context_window: 1000000    # 同步 2026-11-19（scripts/sync_models.py）
+        max_output_tokens: 262144    # 同步 2026-11-19（scripts/sync_models.py）
+        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）
+        protocols: ["messages"]
       # 2026-10-09 自动同步：官方文档新增（scripts/sync_models.py）
   # ── Dots AI（小红书 Dots Studio，第三十六轮新增）──────────────
   # 官方文档：https://dots.ai/platform/docs（2026-09-28 通读）
@@ -569,20 +596,26 @@ server:
   hot_reload: true        # 监听 gateway.yaml mtime 自动重载（改配置免重启）
   hot_reload_interval: 15 # 重载检查间隔（秒）
   metrics_enabled: true   # 记录调用指标（/metrics）
-  rate_limit_rps: 20      # 全局单 user QPS 上限（2026-10-23 由 null 改为 20：防泄露 Key 打爆额度；
+  rate_limit_rps: 50      # 全局单 user QPS 上限（2026-11-06 由 20 改为 50：多客户端并发时 20 太紧）（2026-10-23 由 null 改为 20：防泄露 Key 打爆额度；
                           #   供应商级限流仍由 provider.rate_limit_rps 控制，两者取更严的那个）
   # 请求体字节上限。2026-09-24 从 2MB 提到 20MB：带图对话（生成/上传的 PNG 以
   #   base64 内联进历史，单张 100KB~750KB）几张就顶爆 2MB → 上游 413
   #   「请求体超过上限 2000000 字节」。内部网关 + nginx 两层把关，保留限制只调大数字。
   max_body_size: 20000000
-  cors_origins: ["*"]     # CORS 允许来源（生产收紧为具体域名）
+  cors_origins:              # CORS 允许来源（2026-11-06 由 ["*"] 收紧为白名单）
+    - "https://127.0.0.1:8808"
+    - "http://127.0.0.1:8808"
+    - "http://localhost:8808"
+    - "http://127.0.0.1:5173"      # Vite dev server
+    - "http://localhost:5173"
   graceful_shutdown: 30   # 优雅关闭等待在途请求的秒数
   # ── 防滥用 / 安全 ──
   batch_max_concurrency: 16   # /batch 并发上限（客户端 max_concurrency 会被钳到此值）
   batch_max_items: 64         # /batch 单次最大条目数（超出返回 400）
   webhook_allow_private: false        # 视频 callback_url 是否允许指向内网/回环（SSRF 防护，默认禁）
   docs_enabled: false                 # FastAPI 文档（/docs、/openapi.json）是否开放（安全默认关）
-  auth_fail_limit_per_min: 20         # 同一来源 IP 每分钟鉴权失败上限，超过 → 429（防暴力枚举）
+  auth_fail_limit_per_min: 60         # 同一来源 IP 每分钟鉴权失败上限（2026-11-06 由 20 改为 60：客户端配错 Key 重试容易误触发），超过 → 429（防暴力枚举）
+  auth_fail_ban_seconds: 3600        # 2026-11-06 新增：鉴权失败超限后拉黑 1 小时（0=只限流不拉黑）
 
 # ── 供应商熔断（Circuit Breaker） ──────────────────────
 # 某供应商连续/滑动窗口失败达到 failure_threshold 就熔断 cooldown 秒，
@@ -606,7 +639,8 @@ pricing:
     agnes-3.0-flash:      { input: 0, output: 0 }   # 同步 2026-09-24（原 0.35/1；文档现价 ¥0/M 输入、¥0/M 输出）
     agnes-2.5-flash:      { input: 0, output: 0 }   # 文档现价暂免（输入/输出/缓存命中均 ¥0/百万）
     agnes-2.5-pro:        { input: 3, output: 6 }   # 2026-09-24 自动同步（文档现价）
-    agnes-2.5-pro-beta:   { input: 3, output: 6 }   # 2026-10-21 自动同步（文档现价）
+    agnes-2.5-pro-beta:   { input: 0.7, output: 2.1 }   # 2026-10-21 自动同步（文档现价）
+    agnes-2.5-pro-theta:  { input: 0.7, output: 2 }   # 2026-11-09 自动同步（文档现价）
 
 # ── 媒体下载代理白名单（第十七轮）────────────────────────
 # 生成的图片/视频挂在第三方 CDN 上且不带 CORS 头，浏览器里既 fetch 不到 blob、

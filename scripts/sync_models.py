@@ -114,6 +114,99 @@ OC_REGION_BLOCKED = {
 }
 OC_REGION_SKIPPED: list[str] = []
 
+# ── 2026-11-19 文档二次改版：Endpoints 表不再逐条列 URL ──────────────
+# 官方把 `## Endpoints` 改成了「去看 console 页 / 用 models 接口」，HTML 里
+# 已经没有 `opencode.ai/` 的模型行 → 连续两天 exit=2「没解析出 Endpoints 表」。
+# 现在官方 models 接口直接给出机器可读的元数据（**无需鉴权**，实测不带 token 也 200）：
+#   GET https://opencode.ai/inference/go/v1/models     （zen/go/v1/models 同源同内容）
+# 每条模型带：
+#   id / name / type
+#   api: {chat-completions|responses|messages|generate-content: {base_url, sdk}}
+#   recommended_api: 官方推荐线
+#   limit: {context, output}
+#   cost.text.input.price / cost.text.output.price  （都为 0 → 免费）
+#   go.limited_regions: true → 对部分地区不开放（实测正是这三个 contributor / beam-free）
+# 口径：**以 models 接口为准**，HTML 表解析只作兜底；接口也挂了才报错。
+OC_MODELS_API = "https://opencode.ai/inference/go/v1/models"
+OC_MODELS_API_FALLBACK = "https://opencode.ai/zen/go/v1/models"
+
+# models 接口的 api 键 → 网关协议线（网关只支持这三条线）
+OC_API_TO_PROTO = {
+    "chat-completions": "chat/completions",
+    "responses": "responses",
+    "messages": "messages",
+}
+
+
+def _oc_protocol_from_api(model: dict) -> tuple[str | None, list[str]]:
+    """从 models 接口的 api / recommended_api 选网关协议线。
+
+    返回 (协议线, 文档声明的全部 api 键)；认不出（例如只有 generate-content）返回 (None, keys)。
+    """
+    keys = list((model.get("api") or {}).keys())
+    supported = [OC_API_TO_PROTO[k] for k in keys if k in OC_API_TO_PROTO]
+    if not supported:
+        return None, keys
+    rec = model.get("recommended_api")
+    if rec in OC_API_TO_PROTO and OC_API_TO_PROTO[rec] in supported:
+        return OC_API_TO_PROTO[rec], keys
+    for proto in OC_PROTOCOLS:            # 没有推荐或推荐不支持 → chat/completions 优先
+        if proto in supported:
+            return proto, keys
+    return supported[0], keys
+
+
+def _oc_is_free(model: dict) -> bool:
+    """cost.text 的 input / output 单价都为 0 → 免费。"""
+    price = (model.get("cost") or {}).get("text") or {}
+    return ((price.get("input") or {}).get("price") == 0
+            and (price.get("output") or {}).get("price") == 0)
+
+
+def fetch_opencode() -> dict[str, dict]:
+    """返回 {model_id: {name, protocol, free}}。
+
+    优先走官方 models 接口（稳定、机器可读）；接口不可用时回退到旧的 HTML 表解析。
+    """
+    payload = None
+    err: Exception | None = None
+    for url in (OC_MODELS_API, OC_MODELS_API_FALLBACK):
+        try:
+            payload = json.loads(_get(url, timeout=60))
+            if isinstance(payload, dict) and payload.get("data"):
+                break
+            payload = None
+        except Exception as exc:                                   # noqa: BLE001
+            err = exc
+
+    if not payload:
+        print(f"[warn] OpenCode models 接口不可用（{err}），回退 HTML 解析", file=sys.stderr)
+        return _fetch_opencode_html()
+
+    models: dict[str, dict] = {}
+    skipped: list[str] = []
+    region_skipped: list[str] = []
+    for m in payload["data"]:
+        mid = m.get("id")
+        if not mid or (m.get("type") or "chat") != "chat":
+            continue
+        if (m.get("go") or {}).get("limited_regions") or mid in OC_REGION_BLOCKED:
+            region_skipped.append(mid)
+            continue
+        proto, keys = _oc_protocol_from_api(m)
+        if proto is None:
+            skipped.append(f"{mid}（{'/'.join(keys) or '无 api 字段'}）")
+            continue
+        models[mid] = {"name": m.get("name") or mid,
+                       "protocol": proto,
+                       "free": _oc_is_free(m)}
+
+    if not models:
+        raise RuntimeError("OpenCode models 接口返回 0 个可用模型（接口可能改版）")
+    OC_SKIPPED[:] = sorted(skipped)
+    OC_REGION_SKIPPED[:] = sorted(region_skipped)
+    return models
+
 
 def _oc_protocol(url: str) -> str | None:
     """文档 Endpoint → 网关协议线；认不出返回 None。"""
@@ -124,8 +217,12 @@ def _oc_protocol(url: str) -> str | None:
     return None
 
 
-def fetch_opencode() -> dict[str, dict]:
-    """返回 {model_id: {name, protocol, free}}。"""
+def _fetch_opencode_html() -> dict[str, dict]:
+    """【兜底】旧版 HTML 表解析。
+
+    2026-11-19 起官方 `## Endpoints` 表已不再逐条列 URL（内容搬到 console 页 +
+    models 接口），这里正常不会走到；保留只为页面万一改回去时还能用。
+    """
     html = _get(OC_DOC_URL)
     models: dict[str, dict] = {}
     skipped: list[str] = []

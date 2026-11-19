@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## 2026-11-19 · 修 OpenCode 模型同步（官方文档改版导致连续两天 exit=2）
+
+**症状**：自动化日报的「三、模型清单同步」整块失败，`logs/model-sync.log` 连续两天：
+
+```
+[2026-11-17 23:02:18] exit=2  抓取/解析失败：RuntimeError: OpenCode 文档没解析出 Endpoints 表（页面可能改版）
+[2026-11-18 23:02:29] exit=2  同上
+```
+
+**根因**：官方把 `## Endpoints` 表改成了「去 console 页看 / 用 models 接口」，
+HTML 里已经没有带 `opencode.ai/` 地址的模型行，`fetch_opencode()` 的 `<tr>/<td>` 解析拿不到任何行。
+
+**修法**：改为优先读官方 models 接口（**无需鉴权**，实测不带 token 也 200）：
+
+```
+GET https://opencode.ai/inference/go/v1/models      # 与 /zen/go/v1/models 同源同内容
+```
+
+每条模型自带 `id` / `name` / `type` / `api{chat-completions,responses,messages,generate-content}` /
+`recommended_api` / `limit{context,output}` / `cost.text.*.price`（都为 0 = 免费）/ `go.limited_regions`。
+脚本据此推导协议线、免费标记、地区限制，**HTML 表解析降级为兜底**（接口不可用才走）。
+
+**同步结果**（2026-11-19 08:02 首次落盘）：
+
+| 动作 | 内容 |
+|---|---|
+| 删除 | `opencode/mimo-v2.5`、`opencode/mimo-v2.5-pro`（上游已被 V2.6 取代，文档也不再收录）|
+| 上下文 | `hy4-flash-free` → 1,048,576 / 65,536；`qwen4-max` → 1,000,000 / 262,144 |
+| 跳过 | `gemini-4-argon`（只有 generate-content 线）；`beam-free`、`muse-spark-1.2/1.3-contributor`（`go.limited_regions`，与旧硬编码名单一致）|
+
+落盘后网关 28 个模型、`/healthz` 200，`hot_reload` 自动生效未重启；再跑一次输出「无漂移」。
+`sync_onemin.py` 同步验证通过（49 接口 / 43 配置 / 跳过重名 6）。
+
+---
+
 ## 2026-10-31 · 新增 1min.AI 供应商（43 个模型）
 
 老板：「查看 https://docs.1min.ai/docs/api/openai-compatible 文档，把 1min 供应商加入 ai 网关项目里」。
