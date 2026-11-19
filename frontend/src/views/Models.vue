@@ -134,6 +134,26 @@
             <span v-if="!row.vision && !paramKeys(row).length" class="muted-2">—</span>
           </template>
         </el-table-column>
+        <!-- 2026-11-19（老板要求）：OpenCode Go 的套餐额度与训练策略。
+             额度 = 「只用这一个模型时，该套餐每月能覆盖多少用量」（官方 go.monthly_usage，美元）；
+             训练 = 官方 go.training（false = 不拿你的请求训练）。
+             只有 OpenCode Go 的模型带这个字段，其余供应商显示「—」。 -->
+        <el-table-column width="150">
+          <template #header>
+            <el-tooltip :content="t('models.goQuotaHint')" placement="top">
+              <span class="proto-th">{{ t('models.goQuota') }}</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">
+            <template v-if="row.goMeta">
+              <span class="pill go-quota cap" :title="goQuotaHint(row)">{{ goQuotaText(row) }}</span>
+              <span class="pill cap" :class="goTrains(row) ? 'err' : 'ok'" :title="t('models.goTrainingHint')">
+                {{ goTrains(row) ? t('models.goTrainingYes') : t('models.goTrainingNo') }}
+              </span>
+            </template>
+            <span v-else class="muted-2">—</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('models.keySet')" width="90">
           <template #default="{ row }">
             <span class="pill" :class="row.key_set ? 'ok' : 'err'">
@@ -431,6 +451,10 @@ const textModelRows = computed(() =>
     paramNote: paramKeys(m).length ? paramNote(m) : '',
     // 支持的格式（第二十七轮）：悬浮这一行就能看到「能用哪几条线 + 本次测速走的哪条」
     formats: protocolsOf(m),
+    // 2026-11-19（老板要求）：OpenCode Go 的套餐额度（每月能调多少）与训练策略。
+    //   后端 /v1/models 的 go 字段（app/gomodels.py 从官方 models 接口拉取，缓存 6 小时）；
+    //   非 OpenCode 供应商没有这个字段 → 该列显示「—」。
+    goMeta: m.go || null,
   })),
 )
 
@@ -452,6 +476,43 @@ function freeText(m: any): string {
 }
 function freeHint(m: any): string {
   return m && m.free_limited ? t('models.freeLimitedHint') : t('models.freeHint')
+}
+
+// ── OpenCode Go 套餐额度 / 训练策略（2026-11-19 老板要求）──
+// 数据来自后端 /v1/models 的 go 字段（app/gomodels.py ← 官方 models 接口 go.monthly_usage）。
+// 官方口径：monthly_usage 是「只用这一个模型时，各套餐每月额度能覆盖多少用量」（美元）。
+// 单元格里只显示默认档（Go），三档明细与零保留说明放悬浮提示。
+const GO_PLAN_KEYS = ['go', 'go-plus', 'go-teams'] as const
+
+function goUsageOf(m: any): Record<string, number> {
+  return (m && m.goMeta && m.goMeta.monthly_usage) || {}
+}
+
+function goQuotaText(m: any): string {
+  const u = goUsageOf(m)
+  if (u.go) return `$${u.go}`
+  if (m && m.free) return t('models.goQuotaFree')
+  return '—'
+}
+
+function goQuotaHint(m: any): string {
+  const u = goUsageOf(m)
+  const parts: string[] = []
+  if (GO_PLAN_KEYS.some((k) => u[k])) {
+    parts.push(t('models.goQuotaValues', {
+      go: u.go ?? '—',
+      plus: u['go-plus'] ?? '—',
+      teams: u['go-teams'] ?? '—',
+    }))
+  } else {
+    parts.push(t('models.goQuotaHint'))
+  }
+  if (m && m.goMeta && m.goMeta.zdr) parts.push(t('models.goZdrHint'))
+  return parts.join(' · ')
+}
+
+function goTrains(m: any): boolean {
+  return !!(m && m.goMeta && m.goMeta.training)
 }
 
 // ── 模型级强制参数（第二十五轮）──
@@ -597,6 +658,8 @@ onUnmounted(() => {
 .plock { color: var(--warn); }
 /* 免费模型：绿色系，跟「视觉」(主题色) / 「参数固定」(橙) 区分开；跟在模型名后面 */
 .pill.free { background: rgba(16, 185, 129, 0.14); color: #059669; }
+/* OpenCode Go 的套餐额度（2026-11-19）：中性蓝，与免费（绿）/ 参数固定（橙）区分 */
+.pill.go-quota { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
 /* 免费标注的间距（2026-09-24 老板：间隔不一样）——
    表格单元格里是行内排布、没有 flex gap，靠这个 margin 与模型名分开；
    测速行是 flex（.st-row gap: 8px），必须把 margin 归零：否则标签左侧 8+6=14px、

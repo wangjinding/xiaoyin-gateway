@@ -56,6 +56,8 @@ from app.sessions import SessionStore
 from app.users import UsersStore, UserError, key_limit_for_role
 from app.history import HistoryStore, HistoryError, MAX_ITEMS as HISTORY_CAP
 from app.feedback import FeedbackStore, FeedbackError, MAX_ENTRIES as FEEDBACK_CAP
+# 2026-11-19: OpenCode Go 套餐元数据（月度额度 / 是否训练 / 零保留），只用于前端展示
+from app.gomodels import get_go_meta, cache_stamp as gomodels_cache_stamp
 from app.video_owners import VideoOwnerStore
 from app import settings as gw_settings
 from app.agents import AgentStore, AgentsError
@@ -1494,7 +1496,7 @@ def _attach_cost(resp: dict, model: str, usage: dict, cfg) -> None:
 # ─────────────────────────────────────
 # GET /models + GET /v1/models（P1-7 / P0-3）
 # ─────────────────────────────────────
-def _models_payload():
+def _models_payload_base():
     cfg = _cfg()
     # 优化: 目录按配置 mtime 缓存（热重载改配置才重建；静默期每次请求直接命中，省掉
     #   all_models() 的重复遍历与对象构建）。cfg 引用同一 config 对象，
@@ -1568,6 +1570,40 @@ def _models_payload():
                       for k, v in cfg.providers.items()},
     }
     _state["_models_cache"] = (mtime, payload)
+    return payload
+
+
+def _models_payload():
+    """在按 mtime 缓存的目录上，现拼 OpenCode Go 的套餐元数据。
+
+    2026-11-19（老板要求）：前端要显示「这个模型每月能调多少」「是否拿你的代码训练」。
+    这两个字段来自官方 models 接口（有自己的 6 小时缓存，见 app/gomodels.py），
+    所以**不烤进** `_models_cache`（否则配置不变就永远停在第一次的快照）。
+
+    拼好后按 (配置 mtime, go 缓存时间戳) 再缓存一层 —— 两个都没变时返回**同一个对象**
+    （`test_models_payload_cached_and_invalidated_by_mtime` 依赖这个身份语义）；
+    任一变化就重拼。拿不到 go 数据时直接原样返回 base。
+    """
+    base = _models_payload_base()
+    go = get_go_meta()
+    if not go:
+        return base
+    # 缓存键带上 base 的对象 id（并**持有 base 的强引用**，保证 id 不会被复用）——
+    # 这样只要 base 被重建（配置热重载，或测试直接把 _models_cache 置 None 换 config），
+    # 合并层就跟着失效；go 数据刷新（时间戳变化）也会失效。
+    key = (id(base), gomodels_cache_stamp())
+    cached = _state.get("_models_cache_go")
+    if cached is not None and cached[0] == key and cached[2] is base:
+        return cached[1]
+    data = []
+    for item in base.get("data") or []:
+        mid = item.get("id")
+        # 别名（alias_of）不重复挂：它的额度/训练口径就是目标模型的，前端按目标取
+        if mid in go and "alias_of" not in item:
+            item = {**item, "go": go[mid]}
+        data.append(item)
+    payload = {**base, "data": data}
+    _state["_models_cache_go"] = (key, payload, base)
     return payload
 
 
