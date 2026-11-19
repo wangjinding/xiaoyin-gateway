@@ -27,11 +27,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import urllib.request
 
 _URL = "https://opencode.ai/inference/go/v1/models"
+log = logging.getLogger("api-gateway.gomodels")
 _TTL = 6 * 3600
 _RETRY_AFTER_FAIL = 300
 _TIMEOUT = 6
@@ -85,12 +87,15 @@ def get_go_meta(force: bool = False) -> dict[str, dict]:
         if force or not _cache or time.time() - _at >= _TTL:
             try:
                 fresh = _fetch()
-            except Exception:             # noqa: BLE001 —— 展示数据，失败不重要
+            except Exception as exc:      # noqa: BLE001 —— 展示数据，失败不影响主流程
+                # 2026-11-19：一定要留痕 —— 前端这一列空了，运维得能一眼看出是"没拉到"还是"没渲染"
+                log.warning("OpenCode Go 元数据拉取失败（前端额度/训练列会空）：%s", exc)
                 fresh = None
             if fresh:
                 _cache.clear()
                 _cache.update(fresh)
                 _at = time.time()
+                log.info("OpenCode Go 元数据已载入：%d 个模型", len(fresh))
             else:
                 _at = time.time() - _TTL + _RETRY_AFTER_FAIL
     finally:

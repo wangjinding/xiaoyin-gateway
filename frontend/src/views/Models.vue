@@ -532,7 +532,12 @@ const keySet = computed(() => {
   for (const p of Object.values(health.value.providers || {}) as any) ks[p.name] = !!p.api_key_set
   return ks
 })
-const modelRows = computed(() => models.value.map((m) => ({ ...m, key_set: keySet.value[m.provider_name] })))
+// 主表格的行数据（表格绑的就是 modelRows：`{...m}` 展开原始模型，保留全部接口字段）。
+// 2026-11-19：OpenCode Go 的套餐额度/训练列读 row.goMeta —— 必须在这里挂上，
+//   只挂在 textModelRows（另一个只用来数数量/测速的数组）上表格是看不到的。
+const modelRows = computed(() =>
+  models.value.map((m) => ({ ...m, key_set: keySet.value[m.provider_name], goMeta: m.go || null })),
+)
 
 const providerRows = computed(() => {
   const p = health.value.providers || {}
