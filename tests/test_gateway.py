@@ -61,6 +61,16 @@ if _TC is not None:
     _AUTOBEARER = ""
     try:
         import app.main as _m
+        # 2026-11-19：测试会**故意**制造大量鉴权失败，而 2026-11-06 起的「鉴权失败自动封禁」
+        #   会在同一进程内把 testclient 这个 IP 拉黑 60 分钟 → 后半场测试全变 429。
+        #   这是测试隔离问题，不是被测行为：测试里关掉封禁（限流仍生效），生产逻辑不动。
+        try:
+            _m._cfg().server.auth_fail_ban_seconds = 0
+            _m._BANNED.clear()
+            _m._BANNED_FOREVER.clear()
+            _m._AUTH_FAILS.clear()
+        except Exception:
+            pass
         _c = _TC(_m.app)
         _r = _c.post("/auth/login", json={"username": "admin", "password": "admin"})
         if _r.status_code == 200:
@@ -1716,7 +1726,10 @@ def test_models_payload_marks_free_models():
     # 2026-10-12：样本从 space-bunny-free 换成 longcat-2.5-preview-free —— 前者已于
     #   2026-10-07 被官方改名成 space-bunny 并转收费（价格表 $0.15/$0.60），
     #   每日同步据此去掉了它的 free 标记（现网免费位＝longcat-2.5-preview-free / step-5-preview-free）。
-    assert "longcat-2.5-preview-free" in free_ids, f"免费模型没标出来：{free_ids}"
+    # 2026-11-19：官方把 longcat-2.5-preview-free 改名为 longcat-2.5-free（每日同步已跟进），
+    #   样本改成「现网确实免费的那几个之一」，避免上游改名再把测试打红。
+    assert any(x in free_ids for x in ("longcat-2.5-free", "hy4-flash-free",
+                                       "iceman-contributor-free")), f"免费模型没标出来：{free_ids}"
     # 反向：付费模型必须是 free=false（不能因为字段缺失而误标）
     paid = next(x for x in data if x["id"] == "deepseek-v4.1-flash")
     assert paid["free"] is False, paid

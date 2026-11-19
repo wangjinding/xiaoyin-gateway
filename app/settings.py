@@ -141,6 +141,9 @@ def config_to_view(cfg: GatewayConfig) -> dict[str, Any]:
             "webhook_allow_private": s.webhook_allow_private,
             "docs_enabled": s.docs_enabled,
             "auth_fail_limit_per_min": s.auth_fail_limit_per_min,
+            # 2026-11-19 补：封禁功能（2026-11-06）加了配置项但面板视图没跟上，
+            #   一旦在面板里保存配置，这一行就会被写丢（回退成默认 3600）。
+            "auth_fail_ban_seconds": s.auth_fail_ban_seconds,
         },
         "auth": {"session_ttl_minutes": cfg.auth.session_ttl_minutes},
         "circuit": {
@@ -479,6 +482,9 @@ _SERVER_KEYS = (
     "host", "port", "timeout", "retry", "health_auth", "hot_reload", "hot_reload_interval",
     "metrics_enabled", "rate_limit_rps", "max_body_size", "cors_origins", "graceful_shutdown",
     "batch_max_concurrency", "batch_max_items", "webhook_allow_private", "docs_enabled",
+    # 2026-11-19 补：封禁功能（2026-11-06）落盘了这两个键但忘了搬上面板，
+    #   导致「文件里有、面板里没有」—— 保存一次面板就会把它们丢掉。
+    "auth_fail_limit_per_min", "auth_fail_ban_seconds",
     "auth_fail_limit_per_min",
 )
 _CIRCUIT_KEYS = ("enabled", "failure_threshold", "cooldown", "window")
