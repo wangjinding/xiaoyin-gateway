@@ -1,4 +1,4 @@
-# AI 网关配置文件（data/ 目录）
+# 小银网关配置文件（data/ 目录）
 # 供应商：Agnes / OpenCode Go（订阅编程模型）/ Dots AI
 # 密钥统一走 token_env 指向的环境变量（本机见 data/.env），不再在 yaml 存明文
 # 端口默认 8808
@@ -331,12 +331,6 @@ providers:
         protocols: ["chat/completions"]
       - id: "glm-5.3"
         display_name: "GLM-5.3"
-        type: "text"
-        context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
-        max_output_tokens: 131072    # 最大输出（token）
-        protocols: ["chat/completions"]
-      - id: "glm-5.2"
-        display_name: "GLM-5.2"
         type: "text"
         context_window: 1000000    # 第三十三轮（2026-09-24）：上下文窗口（token），每日同步维护
         max_output_tokens: 131072    # 最大输出（token）

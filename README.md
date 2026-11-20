@@ -1,4 +1,4 @@
-# API Gateway
+# 小银网关
 
 统一多供应商 LLM 接入网关，纯后端 FastAPI，配置驱动。支持 **Agnes AI**、**OpenCode Go**、**Dots AI（小红书）** 三个供应商，全部走 OpenAI 兼容协议。v2.4 已集成熔断、限流、图像/视频、指标、成本估算、热加载、测试等完整能力。
 
@@ -769,7 +769,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
     `index-BWFYxQdn.js`）；用同源探针 `probe.html`（原 `design/login-v3/probe.html`，已随设计稿目录归档）逐格量过 **3 主题 × 7 分辨率**
     （1280×720 / 1024×768 / 1440×900 / 1920×1080 / 390×844 / 360×640 / 414×896）共 21 组：
     全部 `ovX=ovY=0` 无溢出、卡片 440×444 居中、三主题的卡片 / 按钮 / logo / 聚焦环颜色各自正确、
-    旧结构节点 0；英文单独验过（`API Gateway Console` / `Username` / `Password` / `Sign in`、
+    旧结构节点 0；英文单独验过（`Xiaoyin Gateway Console` / `Username` / `Password` / `Sign in`、
     `<html lang="en">`、卡片 434 高同样无溢出）；真机交互验过语言切换（右上角胶囊 → English →
     文案与 `<html lang>` 同步）与空提交报错（卡片内红色提示、卡片自动增高不溢出）。
     线上 `https://127.0.0.1:8808/web/#/login` 已服务新产物（`Login-CazImMjd.css` 200 / 4426B，

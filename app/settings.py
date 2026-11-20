@@ -516,7 +516,7 @@ def restart_keys_changed(old: GatewayConfig, new: GatewayConfig) -> list[str]:
 
 # ── 渲染 yaml 文本 ────────────────────────────────────────
 _HEADER = """\
-# AI 网关配置文件（data/ 目录）
+# 小银网关配置文件（data/ 目录）
 #
 # ⚠ 本文件由管理页面「网关配置」生成（管理员账号），页面保存时会**整份重写**：
 #   想要的历史决策/踩坑说明在 README.md（按轮次记录），这里只保留必要的现场注释。

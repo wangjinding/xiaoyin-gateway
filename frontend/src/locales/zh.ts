@@ -65,7 +65,7 @@ export default {
   },
 
   nav: {
-    title: 'API 网关',
+    title: '小银网关',
     connected: '已连接 127.0.0.1:8808',
     disconnected: '连接异常',
     menudashboard: '仪表盘',
@@ -140,7 +140,7 @@ export default {
     cancel: '取消',
   },
   login: {
-    title: 'API 网关管理台',
+    title: '小银网关管理台',
     userPlaceholder: '用户名',
     passPlaceholder: '密码',
     btn: '登录',

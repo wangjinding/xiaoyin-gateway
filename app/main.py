@@ -1,4 +1,4 @@
-"""API 网关主入口：FastAPI 应用（v2.4 全功能版）。
+"""小银网关主入口：FastAPI 应用（v2.4 全功能版）。
 
 特性：
 - 多供应商 OpenAI 兼容 /chat/completions（同模型重试 + 熔断；第二十七轮起三线直传：
@@ -211,7 +211,7 @@ def _warn_security_posture(cfg) -> None:
 async def lifespan(app: FastAPI):
     global config
     _setup_logging()
-    log.info("API Gateway 启动，已加载 %d 供应商", len(config.providers))
+    log.info("小银网关启动，已加载 %d 供应商", len(config.providers))
     _warn_security_posture(config)
     for w in validate_warnings(config):
         log.warning("配置告警: %s", w)
@@ -275,7 +275,7 @@ async def lifespan(app: FastAPI):
         _, pending = await asyncio.wait(set(_bg_tasks), timeout=5)
         for t in pending:
             t.cancel()
-    log.info("API Gateway 关闭，等待在途请求（graceful_shutdown=%ds）", config.server.graceful_shutdown)
+    log.info("小银网关关闭，等待在途请求（graceful_shutdown=%ds）", config.server.graceful_shutdown)
     # 第六轮: 快照后再迭代（避免迭代中字典被改动 → RuntimeError）
     for adapter in list(_state.get("adapters", {}).values()):
         await adapter.close()
@@ -388,7 +388,7 @@ _docs_on = config.server.docs_enabled   # 安全默认关（report: /docs、/ope
 VERSION = "2.9.16"
 
 app = FastAPI(
-    title="API Gateway",
+    title="小银网关",
     description="统一多供应商 LLM 接入网关（Agnes / OpenCode Go / Dots AI）",
     version=VERSION,
     lifespan=lifespan,
@@ -3333,7 +3333,7 @@ async def metrics_prometheus(request: Request, _auth=Depends(require_auth)):
         raise HTTPException(404, "metrics 已禁用")
     snap = _usage_snapshot()
     lines = [
-        "# API Gateway Prometheus 指标",
+        "# Xiaoyin Gateway Prometheus 指标",
         f'api_gateway_uptime_seconds {snap["uptime_seconds"]}',
         # 第二十七轮: api_gateway_fallback_total 随「路由别名 / fallback 链」一起删除 ——
         #   快照里已没有 fallback_total 字段，这里再读就是 KeyError（曾被 live_check 抓到 500）。
@@ -3394,7 +3394,7 @@ async def metrics_prometheus(request: Request, _auth=Depends(require_auth)):
         "# HELP api_gateway_circuit_recent_failures 熔断窗口内近期失败数",
         "# TYPE api_gateway_circuit_recent_failures gauge",
     ]
-    # "# API Gateway Prometheus 指标" 是第一行注释，保留在 HELP 之前
+    # "# Xiaoyin Gateway Prometheus 指标" 是第一行注释，保留在 HELP 之前
     head, body = lines[0], lines[1:]
     return "\n".join([head] + help_lines + body) + "\n"
 
@@ -3664,7 +3664,7 @@ async def root(request: Request, _auth=Depends(require_auth_or_open)):
         return RedirectResponse("/web/")
     cfg = _cfg()
     return {
-        "name": "API Gateway",
+        "name": "小银网关",
         "version": VERSION,
         "endpoints": {
             "chat": "POST /v1/chat/completions（OpenAI Chat Completions 线）",
