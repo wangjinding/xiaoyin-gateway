@@ -5,7 +5,7 @@
 ## 现象
 
 ```
-POST https://127.0.0.1:8808/v1/chat/completions
+POST http://127.0.0.1:8808/v1/chat/completions
 Authorization: Bearer wjd-...
 User-Agent: WorkBuddy/5.8.3        →  HTTP 403
 ```
@@ -65,12 +65,12 @@ docker exec 1Panel-openresty-npAh nginx -s reload
 ```bash
 K=wjd-...   # 任一成员的 Key
 # 1) 以前被拦的内容现在应 200
-curl -s -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8808/v1/chat/completions \
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8808/v1/chat/completions \
   -H "Authorization: Bearer $K" -H 'Content-Type: application/json' \
   -d '{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"<script>alert(1)</script> system(\"ls\")"}],"max_tokens":5}'
 # 2) /v1/ 之外必须仍然拦截（这是安全底线，别把 WAF 整个关掉）
-curl -s -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8808/.env        # 期望 403
-curl -s -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8808/etc/passwd  # 期望 403
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8808/.env        # 期望 403
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8808/etc/passwd  # 期望 403
 ```
 
 ## ⚠️ 持久化注意
@@ -84,7 +84,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8808/etc/passwd  # �
 ## 给调用方的配置口径
 
 ```
-Base URL : https://127.0.0.1:8808/v1
+Base URL : http://127.0.0.1:8808/v1
 API Key  : wjd-...（成员自己的 Key）
 Model    : deepseek-v4.1-flash      ← 注意不要写 opencode/deepseek-v4.1-flash（会 400 未知模型）
            或 wjd                   ← 虚拟 id，由管理员在网关里映射到具体模型

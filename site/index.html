@@ -292,7 +292,7 @@
     <div class="shot">
       <div class="shot-bar"><i></i><i></i><i></i><span>终端 — 换一个 model，就换一家供应商</span></div>
       <pre class="term"><code><span class="c-com"># 同一个接口，model 决定走向哪一家</span>
-<span class="c-p">$</span> curl https://127.0.0.1:8808/v1/chat/completions \
+<span class="c-p">$</span> curl http://127.0.0.1:8808/v1/chat/completions \
     -H <span class="c-s">"Authorization: Bearer sk-你的key"</span> \
     -d <span class="c-s">'{"model": "agnes-3.0-flash",
          "messages": [{"role":"user","content":"你好"}]}'</span>

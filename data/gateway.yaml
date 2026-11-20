@@ -597,7 +597,6 @@ server:
   #   「请求体超过上限 2000000 字节」。内部网关 + nginx 两层把关，保留限制只调大数字。
   max_body_size: 20000000
   cors_origins:              # CORS 允许来源（2026-11-06 由 ["*"] 收紧为白名单）
-    - "https://127.0.0.1:8808"
     - "http://127.0.0.1:8808"
     - "http://localhost:8808"
     - "http://127.0.0.1:5173"      # Vite dev server

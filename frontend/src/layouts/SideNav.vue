@@ -5,7 +5,7 @@
       <span class="logo"><Icon name="bolt" :size="17" /></span>
       <div>
         <b>{{ t('nav.title') }}</b>
-        <span>127.0.0.1:8808</span>
+        <span>{{ apiHost }}</span>
       </div>
     </div>
 
@@ -33,6 +33,7 @@
 </template>
 
 <script setup lang="ts">
+const apiHost = location.host
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

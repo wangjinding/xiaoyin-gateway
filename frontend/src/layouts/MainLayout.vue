@@ -161,7 +161,7 @@ const pageSub = computed(() => {
   const key = String(route.name || '')
   const sub = t(`nav.sub${key}`)
   // 没写副标题的页面，t() 会把 key 原样返回 —— 这时显示连接地址兜底
-  return sub.startsWith('nav.') ? '127.0.0.1:8808' : sub
+  return sub.startsWith('nav.') ? location.host : sub
 })
 
 function onTheme(cmd: string | number | object) {

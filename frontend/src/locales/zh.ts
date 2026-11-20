@@ -66,7 +66,7 @@ export default {
 
   nav: {
     title: '小银网关',
-    connected: '已连接 127.0.0.1:8808',
+    connected: '已连接',
     disconnected: '连接异常',
     menudashboard: '仪表盘',
     menuchat: '对话',

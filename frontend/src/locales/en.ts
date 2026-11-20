@@ -66,7 +66,7 @@ export default {
 
   nav: {
     title: 'Xiaoyin Gateway',
-    connected: 'Connected to 127.0.0.1:8808',
+    connected: 'Connected',
     disconnected: 'Connection error',
     menudashboard: 'Dashboard',
     menuchat: 'Chat',

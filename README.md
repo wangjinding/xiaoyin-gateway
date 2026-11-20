@@ -611,7 +611,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 ## 前端 Web 控制台
 
 - 前端由网关托管：`frontend/dist` 由网关挂在 `/web`（同源、公开无密钥），浏览入口
-  `https://127.0.0.1:8808/web/`（哈希路由，默认 `/web/#/dashboard`，未登录跳 `/web/#/login`）。
+  `http://127.0.0.1:8808/web/`（哈希路由，默认 `/web/#/dashboard`，未登录跳 `/web/#/login`）。
 - 登录：POST `/auth/login` 用原始 key 换会话（`sess-` 前缀、TTL 滑动过期 86400s），
   前端不持原始 key；登出 `/auth/logout`。
 - 根路径 `/`：浏览器（`Accept: text/html`）访问自动 307 跳 `/web/`；API 调用（Accept 无
@@ -734,7 +734,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
     `hint`/`feats` 节点确认为 0、窄屏 `.login-art` 已带 `url(login-banner-*.svg)` 且 `.orb` 为 `display:none`、
     真实交互（输入框聚焦输入、右上角切换器切到 English 后文案变 `Sign in`）通过；
     `typecheck` 0 error、`npm run build` 成功（新产物 `index-DG7g6NaW.js` / `Login--E4bzU7N.css` /
-    `login-banner-7rrSIoiP.svg`）。线上 `https://127.0.0.1:8808/web/#/login` 已服务新产物
+    `login-banner-7rrSIoiP.svg`）。线上 `http://127.0.0.1:8808/web/#/login` 已服务新产物
     （公网取 `login-banner-7rrSIoiP.svg` 200 / 7139B），后端零改动、未重启。
     另修一处小 a11y 问题：`i18n.ts` 只在 `setLocale()` 里写 `<html lang>`，初始化路径漏了，
     导致 localStorage 存 `en` 的用户 `lang` 一直停在 `zh-CN`；改为模块初始化时也写一次。
@@ -772,7 +772,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
     旧结构节点 0；英文单独验过（`Xiaoyin Gateway Console` / `Username` / `Password` / `Sign in`、
     `<html lang="en">`、卡片 434 高同样无溢出）；真机交互验过语言切换（右上角胶囊 → English →
     文案与 `<html lang>` 同步）与空提交报错（卡片内红色提示、卡片自动增高不溢出）。
-    线上 `https://127.0.0.1:8808/web/#/login` 已服务新产物（`Login-CazImMjd.css` 200 / 4426B，
+    线上 `http://127.0.0.1:8808/web/#/login` 已服务新产物（`Login-CazImMjd.css` 200 / 4426B，
     旧 `Login-BMLIXfzt.css` 404），后端零改动、未重启。
     > 探针为什么挂在 vite dev 上：CSP 里有 `frame-ancestors 'none'`（安全项，不为此放宽），
     > `/web` 下的页面不能被 iframe 嵌（`__probe.html` 放 `/web` 里量不到东西），所以改用
