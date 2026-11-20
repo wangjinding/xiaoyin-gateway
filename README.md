@@ -21,7 +21,7 @@
 ## 架构
 
 ```
-api-gateway/
+xiaoyin-gateway/
 ├── data/gateway.yaml       # 默认运行时配置（run.py 读取，hot_reload 开）
 ├── app/
 │   ├── config.py           # YAML 加载 → dataclass（供应商/模型/协议线/鉴权/熔断/可观测/定价）
@@ -886,7 +886,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 >   改为 `repeat(2, minmax(0, 1fr))`（手机端原来的两列覆盖也随之删掉，规则收敛到 `style.css` 一处），
 >   每格 141px（可用 127px）：中英标签全部单行、三格等高（zh 49px / en 46px）、右边界距卡片 15px。
 >   实测 1280/1440/1024 桌面 + 390 手机 × 中英 7 组全部 `折行=no`、横向溢出 0。
-> - 上线与复核（2026-09-13 17:13 老板批准重启）：`supervisorctl restart api-gateway:api-gateway_00`；
+> - 上线与复核（2026-09-13 17:13 老板批准重启）：`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`；
 >   线上 `/healthz` 200、非对象 JSON 400、错误密码 401、无凭证 401；线上 CSS 内含 `.meter{height:5px}`、
 >   `.set-row>.lb{...flex:0 0 auto}`、手机端 `min-height:34px`，旧的 `.bar{height:5px` 已消失；
 >   专项探针 24 组合（B/A/C 主题 × 1280/390 × 6 页）横向溢出全 0，输入区 34/86px、张数输入 51px、
@@ -1075,7 +1075,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 >   - 未实测项（如实记）：**390px 手机断点没测到** —— 本会话浏览器没有视口控制（试过 Ctrl+缩放压低 CSS 视口无效），故用 `flex-wrap` 兜住「5 颗图标超宽」的最坏情况，建议真机上瞄一眼。
 >
 > - **上线（2026-09-13 20:0x，老板批准）**：`npm run build` → 线上现役 `index-BYW9huII.js` / `index-BCEpjaoj.css` / `Users-Ym7Y7v4h.js`（旧 `index-BV89HnWe.js` 已 404）；
->   `supervisorctl restart api-gateway:api-gateway_00`（旧 pid 2102891 → 新 pid 2157737，仍监听 `127.0.0.1:8808`）。
+>   `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`（旧 pid 2102891 → 新 pid 2157737，仍监听 `127.0.0.1:8808`）。
 >   **本轮有后端改动，重启会清空内存态网页会话 —— 所有人（含 admin）需要重新登录。**
 >   复核：公网 `/healthz` 200、`/web/` 200 且引用新 hash、新 asset 200（`immutable` 长缓存）与旧 asset 404、
 >   CSP 未放宽、`index.html` 仍 `no-cache`；新端点在线判据 = 无凭证调 `PUT /auth/users/x/disabled` 得 **401**（旧代码是 404）。
@@ -1120,7 +1120,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 >     「跳到」滚动生效（目标卡片 y 4221 → 62）、会话时长改成 45 保存 → 盘上文件立刻更新且生成 `.bak`（权限 600）、
 >     页面出「已保存并生效」。
 >   - 上线：`npm run build` → 线上现役 `index-T9rUvEqS.js` / `GatewayConfig-Cujt5GjO.js`
->     （旧 `index-BMd-U-9_.js` 已 404）；`supervisorctl restart api-gateway:api-gateway_00` →
+>     （旧 `index-BMd-U-9_.js` 已 404）；`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` →
 >     新 pid **2102891**（`127.0.0.1:8808`）—— **本轮有后端改动，重启踢掉所有网页会话，需重新登录**。
 >     随后小修一处文案（`{'{'}"status":"ok"{'}'}` 里花括号写法之间多打了空格，渲染成 `{ "status":"ok" }`，
 >     与 /health 真实报文不符）→ 再 `npm run build` → 现役 **`index-CladK7BT.js` /
@@ -1241,7 +1241,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 >   处理中·已处理 400 / API Key 撤不动 403）。撤回部分在隔离实例复核过接口与真浏览器交互。
 > - 上线（2026-09-13 18:4x，老板批准「补上说明后直接上线」）：`npm run build` → 线上现役
 >   `index-b0LZHsJm.js` / `index-BCEpjaoj.css`（旧 `index-CDcUA_16.js` 已 404）；
->   `supervisorctl restart api-gateway:api-gateway_00` → pid **2055315**（127.0.0.1:8808）——
+>   `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` → pid **2055315**（127.0.0.1:8808）——
 >   **本轮有后端改动，重启会踢掉所有网页会话，需重新登录**。（该次 pid 已被下方追加项的上线覆盖。）
 >   追加项（老板 18:39「待处理的单子用户可以自己撤回」）代码与隔离实测完成后，老板 18:5x 批准上线：
 >   再次 `npm run build` + `supervisorctl restart` → 现役 `index-9Whl_Fn4.js`（旧 `index-b0LZHsJm.js` 已 404）、
@@ -1259,7 +1259,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 >   追加项（老板「处理的每个环节都要记录和展示，改好后直接重启上线」）**已上线**：
 >   `npm run build`（先确认 `frontend/public/` 无探针残留）→ 现役 `index-BTllhoyi.js`
 >   （旧 `index-9Whl_Fn4.js` 已 404；`index-BCEpjaoj.css` 哈希未变，本轮无样式改动）；
->   `supervisorctl restart api-gateway:api-gateway_00` → pid **2073622**（`127.0.0.1:8808`）——
+>   `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` → pid **2073622**（`127.0.0.1:8808`）——
 >   **有后端改动，重启踢掉了所有网页会话，需重新登录**。
 >   复核（全部实测）：公网 `/web/` 200 且引用新 hash、`index-BTllhoyi.js` 与
 >   `FeedbackTimeline-CfkAgUmj.js` / `Feedback-DsePxU4t.js` / `FeedbackInbox-D1R_k-8C.js` 全 200、
@@ -1354,7 +1354,7 @@ curl "http://localhost:8808/v1/videos/<video_id>?model=agnes-video-2.5-flash&wai
 >   窄屏 151~175px，无横向溢出）；`vue-tsc` 0 错、`vite build` 通过、后端单测 **137 passed / 0 failed**。
 > - 上线（2026-09-13 17:44，老板批准）：`npm run build` → 线上现役
 >   `index-Yy0kGuVA.js` / `index-DKyqf84q.css` / `Logs-N__ABTKT.js` / `Videos-Bzh1nuOL.js` + `Videos-BVOcHXwL.css`；
->   `supervisorctl restart api-gateway:api-gateway_00` → pid **1999293**（127.0.0.1:8808）。
+>   `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` → pid **1999293**（127.0.0.1:8808）。
 >   复核：公网 `/web/` 200 且引用新 hash、新旧 asset 分别 200 / 404、`/healthz` 200、CSP 头未放宽；
 >   拉线上产物实测含胶囊计数与空结果提示（`Logs`）、新版卡片结构（`Videos`）与窄屏缩略拉伸规则（`Videos` CSS）。
 >   注意：**重启会踢掉所有网页会话，需重新登录**。
@@ -1385,7 +1385,7 @@ VERSION = "2.4.0"     # ← 只改这一处
 ```
 改代码 → 跑测试（python tests/test_gateway.py 或 bash scripts/ci_check.sh）
        → 纯前端：npm run build（dist 即线上目录）
-         后端/代码：supervisorctl restart api-gateway:api-gateway_00
+         后端/代码：supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00
        → 真机验证（线上 healthz / 页面 / 接口）
        → git commit
        → 推 Gitea（scripts/push_gitea.sh，仓库 Jidekin/xiaoyin-gateway 分支 main）
@@ -1400,7 +1400,7 @@ restart）或 `npm run build` 覆盖 `frontend/dist` 的代码改动，验证通
 退出码 2=没凭据 / 3=工作区不干净 / 4=推送后远端≠本地 / 5=`.git/config` 出现明文。
 仓库 `https://git.wangjinding.com/Jidekin/xiaoyin-gateway.git`、分支 `main`
 （`remote` 名就叫 `gitea`）。**三个项目分支已统一为 `main`**
-（2026-10-12：api-gateway 原 `master` 改名 `main`，Gitea 默认分支同步改、旧 `master` 分支删除）。
+（2026-10-12：xiaoyin-gateway 原 `master` 改名 `main`，Gitea 默认分支同步改、旧 `master` 分支删除）。
 
 ## 测试
 

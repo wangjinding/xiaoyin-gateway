@@ -46,7 +46,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CFG = ROOT / "data" / "gateway.yaml"
 
-UA = "api-gateway-model-sync/1.0 (+ops; contact admin)"
+UA = "xiaoyin-gateway-model-sync/1.0 (+ops; contact admin)"
 OC_DOC_URL = "https://opencode.ai/v2/docs/console/go/"
 AGNES_PRICING_URL = "https://www.agnes-ai.cn/zh-Hans/docs/pricing.md"
 

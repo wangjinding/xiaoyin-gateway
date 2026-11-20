@@ -28,7 +28,7 @@ from app.config import (
 )
 from app.models import CHAT_CORE_KEYS, PROTECTED_VIDEO_KEYS, strip_protected
 
-log = logging.getLogger("api-gateway")
+log = logging.getLogger("xiaoyin-gateway")
 
 # ── 上游"某参数只允许取某个值"的报错形态（第二十五轮）──
 # 各家措辞不同，这里收录已实测到的两类：

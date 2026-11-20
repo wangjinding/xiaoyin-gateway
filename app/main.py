@@ -162,7 +162,7 @@ def _setup_logging() -> None:
 
 # 基础日志先起来，进 lifespan 后按 observability 重配
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-log = logging.getLogger("api-gateway")
+log = logging.getLogger("xiaoyin-gateway")
 
 # 调用日志的内容上限（2026-10-23，2.9.12 再放宽）：默认 **4 MiB**（≈100 万 token 的文本）。
 # 老板要求「详情内容都不要截断」—— 4 MiB 对任何正常对话都等于不截断；
@@ -4704,7 +4704,7 @@ async def opencode_go_usage(_auth=Depends(require_auth)):
         raise HTTPException(503, "OpenCode Go 未配置 API Key")
 
     base = str(pconfig.base_url or "https://opencode.ai/zen/go/v1").rstrip("/")
-    ua = (pconfig.extra_headers or {}).get("User-Agent") or f"api-gateway/{VERSION}"
+    ua = (pconfig.extra_headers or {}).get("User-Agent") or f"xiaoyin-gateway/{VERSION}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(

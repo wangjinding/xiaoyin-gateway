@@ -152,7 +152,7 @@ async function saveYaml() {
 function backupCfg() {
   const envs: Record<string, string> = {}
   for (const e of envKeys.value) envs[e.env] = e.value
-  const data = { kind: 'api-gateway-backup', version: 1, config: yamlText.value, envs }
+  const data = { kind: 'xiaoyin-gateway-backup', version: 1, config: yamlText.value, envs }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)

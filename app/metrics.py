@@ -13,7 +13,7 @@ from collections import deque
 from contextvars import ContextVar
 from typing import Any
 
-log = logging.getLogger("api-gateway.metrics")
+log = logging.getLogger("xiaoyin-gateway.metrics")
 
 # 请求级「归属账号」上下文（ContextVar，每 task/请求独立；由 main.py require_auth 写入）。
 # 访问日志与指标通过它给每条记录打上账号，实现：

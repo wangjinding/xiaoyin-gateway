@@ -36,7 +36,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 
-log = logging.getLogger("api-gateway.agents")
+log = logging.getLogger("xiaoyin-gateway.agents")
 
 #: 单轮对话的超时（秒）。引擎可能跑很久（多步工具），给足。
 DEFAULT_TIMEOUT = 300.0

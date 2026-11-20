@@ -30,7 +30,7 @@ import threading
 import time
 from pathlib import Path
 
-log = logging.getLogger("api-gateway.video_owners")
+log = logging.getLogger("xiaoyin-gateway.video_owners")
 
 _FILE_VERSION = 1
 

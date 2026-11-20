@@ -43,7 +43,7 @@ DEFAULT_ENV = ROOT / "data" / ".env"
 
 PROVIDER = "onemin"
 BASE_URL = "https://api.1min.ai/openai/v1"
-UA = "api-gateway-onemin-sync/1.0 (+ops; contact admin)"
+UA = "xiaoyin-gateway-onemin-sync/1.0 (+ops; contact admin)"
 
 
 # ── 工具 ────────────────────────────────────────────────────────────

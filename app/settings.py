@@ -41,7 +41,7 @@ from app.config import (
     validate_warnings,
 )
 
-log = logging.getLogger("api-gateway.settings")
+log = logging.getLogger("xiaoyin-gateway.settings")
 
 # ── 改了必须重启进程才生效的键（其余都是"每请求读配置"，保存即生效） ──
 #   host / port：uvicorn 在进程启动时绑定，改文件不会重绑。

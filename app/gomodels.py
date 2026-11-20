@@ -33,7 +33,7 @@ import time
 import urllib.request
 
 _URL = "https://opencode.ai/inference/go/v1/models"
-log = logging.getLogger("api-gateway.gomodels")
+log = logging.getLogger("xiaoyin-gateway.gomodels")
 _TTL = 6 * 3600
 _RETRY_AFTER_FAIL = 300
 _TIMEOUT = 6
@@ -46,7 +46,7 @@ _at = 0.0
 def _fetch() -> dict[str, dict]:
     req = urllib.request.Request(
         _URL,
-        headers={"Accept": "application/json", "User-Agent": "api-gateway/gomodels"},
+        headers={"Accept": "application/json", "User-Agent": "xiaoyin-gateway/gomodels"},
     )
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:      # noqa: S310
         payload = json.loads(resp.read().decode("utf-8", "replace"))

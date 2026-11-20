@@ -535,7 +535,7 @@ token 正常（输入 41 / 输出 12 / 推理 12）；成员视角只看到自�
 
 老板：「旧托管的都删了，代码，文档相关的都去掉」。
 
-- **远端**：三个项目（`api-gateway` / `QwenPawChat` / `QwenPawChatWeChat`）都删掉 `origin`
+- **远端**：三个项目（`xiaoyin-gateway` / `QwenPawChat` / `QwenPawChatWeChat`）都删掉 `origin`
   （旧托管的仓库地址）—— 现在只留 `gitea` 一个远端。
 - **脚本**：旧的推送脚本移除（归档到 `/root/.trash/<归档>/`，
   含 `MANIFEST.md`；内容仍可从 git 历史取回）；`scripts/push_gitea.sh` 的注释里也去掉了旧托管表述。
@@ -547,7 +547,7 @@ token 正常（输入 41 / 输出 12 / 推理 12）；成员视角只看到自�
 
 老板：「统一成 main，都默认 main 分支」。
 
-- **api-gateway**：本地分支 `master` → `main`（`git branch -m master main`）；Gitea 侧推上 `main`
+- **xiaoyin-gateway**：本地分支 `master` → `main`（`git branch -m master main`）；Gitea 侧推上 `main`
   后把仓库默认分支改成 `main`、删掉旧的 `master` 分支。
 - **QwenPawChat / QwenPawChatWeChat**：本来就是 `main`，无需改（三个项目至此一致）。
 - **本机 git** 设 `init.defaultBranch = main` —— 以后**新建**仓库默认就是 `main`。
@@ -578,7 +578,7 @@ token 正常（输入 41 / 输出 12 / 推理 12）；成员视角只看到自�
 - **`README.md`**「版本号与发布纪律 → 发布流程」一节：推送目标改为 `推 Gitea`。
 - **背景**：旧托管的凭据已实测失效（推送与 `ls-remote` 都回 `Repository Not Found.`）；同期老板起了自建 Gitea
   （容器 `1Panel-gitea-CjQz`，`commitgo/gitea-ee:27.3.8`，公网 `https://git.wangjinding.com`），
-  三个项目（`api-gateway` / `QwenPawChat` / `QwenPawChatWeChat`）都已建 **private** 仓库并推了**全量历史**。
+  三个项目（`xiaoyin-gateway` / `QwenPawChat` / `QwenPawChatWeChat`）都已建 **private** 仓库并推了**全量历史**。
 - **remote 布局**：三个项目只留 `gitea` 一个远端（旧的 `origin` 已删除）。
 - **待办**：若要免密自动推送，可在 Gitea 建 API token（需老板同意；本次没擅自建）。
 
@@ -691,7 +691,7 @@ token 正常（输入 41 / 输出 12 / 推理 12）；成员视角只看到自�
 （切到 `agnes/agnes-3.0-flash` 报 401「无效的令牌」）。走网关的 `wangjinding` 正常
 （网关侧 Agnes Key 是好的）。要用 Agnes 直连需先修 Key。
 
-**上线**：`supervisorctl restart api-gateway:api-gateway_00` + `npm run build`；
+**上线**：`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` + `npm run build`；
 线上 `version=2.6.0`、入口 `index-BQYagb1Q.js`、Agents chunk `Agents-CN_agann.js`；
 真机验证：下拉 112 项 / 7 组 → 选 `wjd` → UI 显示 `wjd` → 磁盘 `agent.json`
 `{"provider_id":"wangjinding","model":"wjd"}` → 引擎回读一致 → 列表页同步。
@@ -1054,7 +1054,7 @@ Prometheus：api_gateway_tokens_cached_total 1920 / api_gateway_tokens_reasoning
 - `scripts/sync_models.py`：新增 `fetch_models_dev()`、`fetch_agnes_context()`（逐模型页解析「限制与价格」表），`diff()` 产出 `ctx_drift`，`apply_plan` 走 `_set_context`（块内改值、保留行尾注释、幂等），`verify()` 回读校验，报告显示漂移；`_DRIFT_KEYS` 与 `plan_is_empty` 认 `ctx_set`。
 - 测试 **201 passed / 0 failed**（新增 3 个），`ci_check.sh` 全绿。
 
-**上线**：`supervisorctl restart api-gateway:api-gateway_00`（pid 3492804）→ 实测 `/v1/models` 45 个模型、**38 个带 `context_window`**（含 `wjd` 别名继承 = 1,000,000 / 384,000），图片/视频模型正确为 0；health 200。代码已推远端（`08a4aee`，远端 = 本地）。
+**上线**：`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`（pid 3492804）→ 实测 `/v1/models` 45 个模型、**38 个带 `context_window`**（含 `wjd` 别名继承 = 1,000,000 / 384,000），图片/视频模型正确为 0；health 200。代码已推远端（`08a4aee`，远端 = 本地）。
 
 ## 2026-09-24 · 修「QwenPaw 缓存命中率恒 0」：流式 usage 丢掉 `prompt_tokens_details`
 
@@ -1108,7 +1108,7 @@ Prometheus：api_gateway_tokens_cached_total 1920 / api_gateway_tokens_reasoning
 `ecb99e6 → afd2f69 → 16d973c`，**远端 `master` tip = 本地 HEAD**，`.git/config` 无 token。
 
 ### ③ 立「上生产必须同步推远端」规则（老板硬性要求）
-- `README.md` 新增段落：凡**重启上线生产**（`supervisorctl restart api-gateway:api-gateway_00`）或 **`npm run build` 覆盖 `frontend/dist`** 的代码改动，验证通过后**必须**推远端；顺序＝改代码 → 测试/CI → 上线 → 确证线上生效 → commit → push；纯注释/配置靠热重载生效的也照推。唯一原则：**线上跑着的代码 = 仓库里的代码**。
+- `README.md` 新增段落：凡**重启上线生产**（`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`）或 **`npm run build` 覆盖 `frontend/dist`** 的代码改动，验证通过后**必须**推远端；顺序＝改代码 → 测试/CI → 上线 → 确证线上生效 → commit → push；纯注释/配置靠热重载生效的也照推。唯一原则：**线上跑着的代码 = 仓库里的代码**。
 - 新增推送脚本：一次性带凭据内嵌 URL 推送，推完自动核对「远端 = 本地」并复查 `.git/config` 无凭据；无凭据退出 2、工作区不干净退出 3；**脚本内不内置凭据**（凭据只在 `MEMORY.md`）。
 
 ## 2026-09-24 · Agnes 免费 / 限时免费标注 + 免费标签间距对齐
@@ -1133,7 +1133,7 @@ Prometheus：api_gateway_tokens_cached_total 1920 / api_gateway_tokens_reasoning
 
 ### 上线
 - 配置：`--apply` 落盘（备份 `data/gateway.yaml.bak`，权限 600，回读校验通过），`hot_reload` 自动生效。
-- 后端：`supervisorctl restart api-gateway:api-gateway_00`（pid 3465113，health 200）。
+- 后端：`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`（pid 3465113，health 200）。
 - 前端：`npm run build` 覆盖 `frontend/dist`，线上 `/web` 已换 `index-CkVhRx-u.js` / `Models-RN5bN2Hd.js`（旧 chunk 404），入口包里能查到「限时免费」。
 - 实测 `/v1/models` 载荷：Agnes 6 个免费 + `agnes-video-2.5-flash` 限时免费 + 3 个付费档无标注；`space-bunny-free` 免费标注不受影响。
 
@@ -1234,7 +1234,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 - **README**：供应商表模型数 17 → 35、模型清单小节按「线 + 免费」重写、三线直传小节数字同步。
 
 ### 踩坑记录（下次别再犯）
-- 探测上游必须带**专属 UA**（`api-gateway/2.4.0 (jakon opencode-go)`）：用 python urllib 的默认 UA
+- 探测上游必须带**专属 UA**（`xiaoyin-gateway/2.4.0 (jakon opencode-go)`）：用 python urllib 的默认 UA
   会被 Cloudflare 拦成 `403 error code: 1010`，看起来像"模型不可用"，其实是 UA 被 ban。
 
 ### 验证
@@ -1383,7 +1383,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
   是对的。
 
 ### 上线与验证
-- 后端 `supervisorctl restart api-gateway:api-gateway_00`；前端 `npm run build` 覆盖
+- 后端 `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`；前端 `npm run build` 覆盖
   `frontend/dist`（网关 `StaticFiles` 直接挂载）→ 线上入口 **`index-Bf3pWvHR.js`**。
 - 生产验证：`/healthz` 200、登录页 + 中英切换（真浏览器）、`/health/agnes` 无凭据 401、
   `GET /` 导航无 `docs`、env 值校验 400 且文件未变、水印图下载 200、未登记 video_id 轮询
@@ -1408,7 +1408,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 - 单测 173 passed / 0 failed（`test_conversation_id_isolated_per_account`、
   `test_api_conversation_id_flows_to_session_header`、`test_non_ascii_...` 已更新为「不传→非
   None 稳定会话」新语义）
-- 生产已重启（`api-gateway:api-gateway_00`，pid 1488509），`/healthz` ok、无回归
+- 生产已重启（`xiaoyin-gateway:xiaoyin-gateway_00`，pid 1488509），`/healthz` ok、无回归
 - **真实的 `cached_tokens>0` 演示暂被挡**：opencode 免费 5 小时额度仍锁定（上游 429），待额度
   重置（约 3h）后可再实测两通相同前缀调用确认命中。
 
@@ -1447,13 +1447,13 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 ### 验证
 - 后端单测：**165 passed / 0 failed**（删 6 个路由引擎用例、改写 10 个、新增 2 个）。
 - 前端：`vue-tsc --noEmit` 0 错、`npm run build` 成功、`check-i18n` 中英 699/699 对称。
-- 生产**未动**：后端需 `supervisorctl restart api-gateway:api-gateway_00`（踢会话），
+- 生产**未动**：后端需 `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`（踢会话），
   前端 dist 覆盖需老板点头。
 
 ### 上线（老板批准重启，2026-09-18 15:16）
 - 前端 `npm run build` 产物覆盖 `frontend/dist`（新入口 `index-CWUVm0px.js`，公网
   `https://127.0.0.1:8808/web/...` 已服务新入口、旧入口 404）。
-- 后端 `supervisorctl restart api-gateway:api-gateway_00` → 新 pid，127.0.0.1:8808 正常，
+- 后端 `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` → 新 pid，127.0.0.1:8808 正常，
   `/health` 200、启动日志「已加载 3 供应商」。
 - **代码仍未提交 git**（老板明确要求"先别提交"）。
 
@@ -1485,7 +1485,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 （chat/completions 7106ms、responses 2014ms、messages 1360ms）。
 
 
-按轮次记录 api-gateway 的修复与优化（README 侧重能力/配置说明，这里侧重每轮的改动、排查、验证与上线）。
+按轮次记录 xiaoyin-gateway 的修复与优化（README 侧重能力/配置说明，这里侧重每轮的改动、排查、验证与上线）。
 
 ---
 
@@ -1540,7 +1540,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
   - 两个账号（admin / liunuanshu）用**同一个** `conversation_id` 各调 `kimi-k3` → **都 200**（派生后的值被上游正常接受）；
   - 缓存归属实验（直连上游、真实 key，prompt≈940 token）：见上文**结论更正**的三组数据。
 - 文档：README 补「取值限制 / 派生规则 / OpenAI SDK 用 extra_body」+ 缓存结论更正；本 CHANGELOG 记一轮。
-- **上线状态**：含 Python 代码改动 → 需 `supervisorctl restart api-gateway:api-gateway_00` 才生效（会踢网页会话），
+- **上线状态**：含 Python 代码改动 → 需 `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` 才生效（会踢网页会话），
   **待老板批准**；本轮无前端改动，不需要 `npm run build`。
 
 ---
@@ -1610,7 +1610,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 - **单测**：**168 passed / 0 failed**（+10：参数解析/白名单拦截/真配置锁定/强制覆盖/自动修正重发/不无限重试/配置冲突/流式修正/测速文案/面板保留 params）；前端 `vue-tsc --noEmit` 通过、`check:i18n` 726/726 对称、`check:svg` 通过、`npm run build` 成功（在副本内构建，未覆盖生产 dist）。
 
 ### 上线（待老板批准）
-- 含 Python 代码改动（`config` / `adapters` / `main` / `settings`）→ 需 `supervisorctl restart api-gateway:api-gateway_00` 才生效（会踢网页会话）。
+- 含 Python 代码改动（`config` / `adapters` / `main` / `settings`）→ 需 `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` 才生效（会踢网页会话）。
 - 前端需 `npm run build` 覆盖 `frontend/dist`（挂锁/提示条才会出现在线上）。
 - 远端推送新增提交。
 
@@ -1647,7 +1647,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 ### 改动
 - **`data/.env`**：新增 `OPENCODE_API_KEY`（600、gitignored）。
 - **`data/gateway.yaml`**：
-  - 新增 `providers.opencode`：`base_url https://opencode.ai/zen/go/v1`、`token_env OPENCODE_API_KEY`、`requires_session_header: true`、`extra_headers.User-Agent: api-gateway/2.4.0 (jakon opencode-go)`，收录 **17 个**文本模型（`glm-5.3-flash/5.3/5.2/5.1`、`kimi-k3/k2.7-code/k2.6`、`longcat-2.0`、`deepseek-v4-pro/v4-flash/flash/v4.1-flash/v4-flash-vision-exp(视觉)`、`mimo-v2.5/v2.5-pro`、`hy4-preview/hy3`）。
+  - 新增 `providers.opencode`：`base_url https://opencode.ai/zen/go/v1`、`token_env OPENCODE_API_KEY`、`requires_session_header: true`、`extra_headers.User-Agent: xiaoyin-gateway/2.4.0 (jakon opencode-go)`，收录 **17 个**文本模型（`glm-5.3-flash/5.3/5.2/5.1`、`kimi-k3/k2.7-code/k2.6`、`longcat-2.0`、`deepseek-v4-pro/v4-flash/flash/v4.1-flash/v4-flash-vision-exp(视觉)`、`mimo-v2.5/v2.5-pro`、`hy4-preview/hy3`）。
   - `routes.wjd` 追加这 17 个（wjd 链 = 20 个文本模型）。
   - 未收录：`glm-5`、`kimi-k2.5`、`hy3-preview`（上游实测 400 Model is unavailable）；`/messages`、`/responses` 线模型未接入（适配器不含该契约）。
 - **`app/config.py`**：`ProviderConfig` 加 `requires_session_header` 字段并解析。
@@ -1667,7 +1667,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 - 单测：**155 passed / 0 failed**；前端 `vue-tsc --noEmit` 通过。
 
 ### 上线（待老板批准）
-- 含 Python 代码改动（config / adapters / settings）→ 需 `supervisorctl restart api-gateway:api-gateway_00` 才生效（会踢网页会话）；纯 yaml 的 hot_reload 只重载供应商/模型定义，`requires_session_header` 字段与注入逻辑要重启后代码才认。
+- 含 Python 代码改动（config / adapters / settings）→ 需 `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` 才生效（会踢网页会话）；纯 yaml 的 hot_reload 只重载供应商/模型定义，`requires_session_header` 字段与注入逻辑要重启后代码才认。
 - 前端 build 覆盖 `dist`（纯前端上线动作）与远端推送待老板确认。
 
 **一句话**：老板拍板——**现有 + 以后新增的每一个文本模型都必须加入 `routes.wjd` 兜底链**。本次把 `agnes-2.5-flash` 补进 wjd，并把这句作为长期规则写入 MEMORY / README / CHANGELOG，供后续新增模型照做。
@@ -1729,7 +1729,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 - 单测 **155 passed / 0 failed**；全项目 grep `智谱|bigmodel|GLM|cogview|cogvideox|ufileos|ZHIPU|zhipu|video_style|_ZHIPU` 除 CHANGELOG 历史外**全部清零**。
 - 前端 `npm run build` 过（typecheck + i18n 对称），新入口 `index-BynIw5Ue.js`。
 - 配置校验：providers `[agnes,volc_engine]`、模型 `agnes[3] + volc[1]`、`routes.wjd` 2 项、下载白名单仅 Agnes。
-- `supervisorctl restart api-gateway:api-gateway_00` 上线（`description`/适配器/校验等属代码改动，需重启）。
+- `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00` 上线（`description`/适配器/校验等属代码改动，需重启）。
 
 ---
 
@@ -1780,7 +1780,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 ### 验证
 - 单测：新增/修正 bigmodel 媒体契约断言、视频轮询必经 `?model=`（现两家视频供应商）、配置往返含新 media 键 → **155 passed / 0 failed**；前端 `npm run build` 过（typecheck + i18n 对称），新入口 `index-CxdHy_Sw.js`。
 - 真机隔离（uvicorn:8899 临时 users/history，连真实智谱）：`/v1/models` 列出 8 个智谱模型；图像 → 200 `data[].url`；视频创建 → `video_id`+`task_status:PROCESSING`；轮询 → `status:processing`；非法参数（`mode=keyframe`）→ 400 干净拒绝。
-- 上线：`supervisorctl restart api-gateway:api-gateway_00`（代码改动需重启），前端 dist 已 build 覆盖。
+- 上线：`supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`（代码改动需重启），前端 dist 已 build 覆盖。
 - **补「下载白名单」**：上线后老板实测智谱图/视频下载报「不在白名单：maas-watermark-prod-new.cn-wlcb.ufileos.com」。已确认智谱图+视频产物**同一 CDN 域名**（实测视频 `SUCCESS` 结果 url 同域），在 `download.allowed_hosts` 补 `maas-watermark-prod-new.cn-wlcb.ufileos.com`（精确项 + 子域匹配，不泛放整个 `ufileos.com`；`evilufileos.com`、后缀撞车域名仍拒绝）。纯配置改动，`hot_reload` ≤15s 自动生效免重启。已用隔离服务器实测：智谱图经 `/v1/media/download` 拉回 200 + 有效 JPEG 97KB。
 
 ---
@@ -1863,7 +1863,7 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
     - `test_feedback_withdraw_only_when_pending`：feedback 撤回逻辑，非本次改动范围。
 
 ### 部署
-- `supervisorctl restart api-gateway:api-gateway_00`。
+- `supervisorctl restart xiaoyin-gateway:xiaoyin-gateway_00`。
 - 重启前验证文件已就位：yaml `safe_load` 通过、`providers = [agnes, b_ai, volc_engine, opencode]`、opencode 4 个模型。
 - 上线后校验：新 pid 61457、healthz `{"status":"ok"}`、`/v1/models` 200 且含 opencode 4 个免费模型、无凭证/错 key 仍 401、真实 chat 调用 `provider=opencode` 返回 200。
 

@@ -31,7 +31,7 @@ import threading
 import time
 from pathlib import Path
 
-log = logging.getLogger("api-gateway.sessions")
+log = logging.getLogger("xiaoyin-gateway.sessions")
 
 # 落盘文件名固定为 sessions.json；结构带 version，便于以后改格式时兼容读取。
 _FILE_VERSION = 1

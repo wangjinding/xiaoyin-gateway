@@ -37,7 +37,7 @@ from app.adapters.qwenpaw_engine import (
     stream_chat,
 )
 
-log = logging.getLogger("api-gateway.agents")
+log = logging.getLogger("xiaoyin-gateway.agents")
 
 QWENPAW_CONFIG = Path("~/.qwenpaw/config.json")
 

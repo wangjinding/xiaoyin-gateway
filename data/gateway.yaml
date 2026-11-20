@@ -279,7 +279,7 @@ providers:
     # 每次请求动态注入会话头（不能放静态 extra_headers——会被 _get_adapter 缓存冻结）。
     requires_session_header: true
     extra_headers:
-      User-Agent: "api-gateway/2.4.0 (jakon opencode-go)"
+      User-Agent: "xiaoyin-gateway/2.4.0 (jakon opencode-go)"
     # 无媒体能力（纯文本编程模型；图像/视频不走本供应商）
     media: {}
     # ── 协议线（第二十七轮「三线直传」）──────────────────────────

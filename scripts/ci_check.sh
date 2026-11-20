@@ -34,7 +34,7 @@ run() {                    # run <说明> <命令...>
   fi
 }
 
-echo "api-gateway CI 门禁（$(date '+%F %T')）"
+echo "xiaoyin-gateway CI 门禁（$(date '+%F %T')）"
 
 # 1) 后端语法编译（覆盖整个 app 包 + run.py；不再维护手写文件清单）
 run "后端语法编译" "$PY" -m compileall -q app run.py

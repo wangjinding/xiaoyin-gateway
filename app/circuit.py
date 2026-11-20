@@ -13,7 +13,7 @@ import threading
 import time
 from collections import deque
 
-log = logging.getLogger("api-gateway.circuit")
+log = logging.getLogger("xiaoyin-gateway.circuit")
 
 
 class CircuitBreaker:

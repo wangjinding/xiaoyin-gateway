@@ -20,7 +20,7 @@ if __name__ == "__main__":
     import uvicorn
 
     gs = int(os.environ.get("GATEWAY_GRACEFUL_SHUTDOWN", config.server.graceful_shutdown))
-    print(f"[api-gateway] config={CONFIG_PATH} host={host} port={port} graceful_shutdown={gs}s")
+    print(f"[xiaoyin-gateway] config={CONFIG_PATH} host={host} port={port} graceful_shutdown={gs}s")
     # 直接传入 app 对象（而非 import string），避免 uvicorn 二次导入 app.main 而再算一次配置。
     uvicorn.run(
         app,

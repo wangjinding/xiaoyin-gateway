@@ -28,7 +28,7 @@ import secrets
 import threading
 import time
 
-log = logging.getLogger("api-gateway.users")
+log = logging.getLogger("xiaoyin-gateway.users")
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9]+$")
 ITERATIONS = 200_000
