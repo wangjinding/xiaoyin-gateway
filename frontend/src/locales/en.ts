@@ -65,7 +65,7 @@ export default {
   },
 
   nav: {
-    title: 'API Gateway',
+    title: 'Xiaoyin Gateway',
     connected: 'Connected to 127.0.0.1:8808',
     disconnected: 'Connection error',
     menudashboard: 'Dashboard',
@@ -140,7 +140,7 @@ export default {
     cancel: 'Cancel',
   },
   login: {
-    title: 'API Gateway Console',
+    title: 'Xiaoyin Gateway Console',
     userPlaceholder: 'Username',
     passPlaceholder: 'Password',
     btn: 'Sign in',

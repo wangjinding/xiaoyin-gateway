@@ -1,4 +1,4 @@
-# API Gateway 快捷命令
+# 小银网关 快捷命令
 # Windows 若无 make，可手动执行对应命令；或装 https://chocolatey.org/packages/make
 
 .DEFAULT_GOAL := help
