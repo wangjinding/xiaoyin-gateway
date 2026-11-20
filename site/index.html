@@ -253,6 +253,7 @@
       <a href="#scene">产品</a>
       <a href="#features">功能</a>
       <a href="#api">接口</a>
+      <a href="#console">管理台</a>
       <a href="#about">关于</a>
     </nav>
     <div class="nav-cta">
@@ -376,6 +377,35 @@
   </div>
 </section>
 
+
+<!-- ══════════ 真实界面 ══════════ -->
+<section id="console" class="sec-white">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>这些<em>都是真实界面</em></h2>
+      <p>不是效果图。下面每一张都是管理台正在跑的样子，数据来自我自己这台机器。</p>
+    </div>
+    <div class="gal2">
+      <figure class="shot2">
+        <div class="shot-bar"><i></i><i></i><i></i><span>仪表盘 — 用量、成功率、延迟、供应商健康</span></div>
+        <img src="/img/console-dashboard.jpg" alt="小银网关管理台仪表盘：请求总数、成功率、平均延迟、模型延迟 P50/P95、供应商状态与调用份额">
+      </figure>
+      <figure class="shot2">
+        <div class="shot-bar"><i></i><i></i><i></i><span>模型与供应商 — 4 家 / 81 个模型</span></div>
+        <img src="/img/console-models.jpg" alt="小银网关管理台：模型与供应商列表，显示每家供应商的模型数与 Key 配置状态">
+      </figure>
+      <figure class="shot2">
+        <div class="shot-bar"><i></i><i></i><i></i><span>指标与成本 — Token 用量、缓存命中、调用分布</span></div>
+        <img src="/img/console-metrics.jpg" alt="小银网关管理台指标页：Token 用量、缓存命中率、各模型与供应商调用分布">
+      </figure>
+      <figure class="shot2">
+        <div class="shot-bar"><i></i><i></i><i></i><span>对话 — 选模型即选供应商，带 token 与耗时</span></div>
+        <img src="/img/console-chat.jpg" alt="小银网关管理台对话页：选择 agnes-3.0-flash 模型提问，显示 token 用量、耗时与成本">
+      </figure>
+    </div>
+  </div>
+</section>
+
 <!-- ══════════ 部署 ══════════ -->
 <section id="deploy" class="sec-white">
   <div class="wrap">
@@ -478,6 +508,13 @@ providers:
         border-radius:12px;font:13.5px/1.8 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
         color:#37404f;overflow-x:auto}
   .code code{background:none;padding:0;color:inherit}
+
+  .gal2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .shot2{margin:0;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+         box-shadow:0 10px 40px -18px rgba(20,30,60,.22);transition:transform .18s ease, box-shadow .18s ease}
+  .shot2:hover{transform:translateY(-3px);box-shadow:0 18px 50px -20px rgba(20,30,60,.3)}
+  .shot2 img{display:block;width:100%;height:auto}
+  @media(max-width:860px){.gal2{grid-template-columns:1fr}}
   .api-list{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden}
   .api-row{display:flex;align-items:center;gap:16px;padding:13px 22px;border-bottom:1px solid var(--line);font-size:14.5px}
   .api-row:last-child{border-bottom:0}
