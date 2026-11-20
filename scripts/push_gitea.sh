@@ -23,7 +23,7 @@
 #   **绝不写进本仓库任何文件**（仓库是要推到远端的）。
 set -euo pipefail
 
-REPO_URL="https://git.wangjinding.com/Jidekin/api-gateway.git"
+REPO_URL="https://git.wangjinding.com/Jidekin/xiaoyin-gateway.git"
 USER="Jidekin"
 TOKEN_FILE="${HOME}/.gitea_token"
 
@@ -50,11 +50,11 @@ echo "== 推送 $BRANCH → Gitea（$REPO_URL）=="
 echo "   本地 HEAD = $(git rev-parse --short HEAD)"
 
 # 一次性内嵌凭据；输出里把凭据打码，避免它进日志/终端回滚缓冲
-git push "https://${USER}:${CRED}@git.wangjinding.com/Jidekin/api-gateway.git" "${BRANCH}:${BRANCH}" 2>&1 \
+git push "https://${USER}:${CRED}@git.wangjinding.com/Jidekin/xiaoyin-gateway.git" "${BRANCH}:${BRANCH}" 2>&1 \
   | sed "s/${CRED}/[CRED]/g"
 
 # 推完核对：远端 HEAD 必须 = 本地 HEAD；并复查 .git/config 没被塞进明文凭据
-REMOTE_HEAD="$(git ls-remote "https://${USER}:${CRED}@git.wangjinding.com/Jidekin/api-gateway.git" "refs/heads/${BRANCH}" | awk '{print $1}')"
+REMOTE_HEAD="$(git ls-remote "https://${USER}:${CRED}@git.wangjinding.com/Jidekin/xiaoyin-gateway.git" "refs/heads/${BRANCH}" | awk '{print $1}')"
 LOCAL_HEAD="$(git rev-parse HEAD)"
 if [ "$REMOTE_HEAD" = "$LOCAL_HEAD" ]; then
   echo "✓ 远端 = 本地（${LOCAL_HEAD:0:7}）"

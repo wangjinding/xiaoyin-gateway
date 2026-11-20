@@ -573,7 +573,7 @@ token 正常（输入 41 / 输出 12 / 推理 12）；成员视角只看到自�
 
 - **新增 `scripts/push_gitea.sh`**：与旧推送脚本同一套安全口径（一次性带凭据内嵌 URL；
   不带密码退出 2 / 工作区不干净退出 3 / 推完核对「远端 = 本地」/ 复查 `.git/config` 无明文；
-  **密码不内置进任何文件**），只是目标换成 `https://git.wangjinding.com/Jidekin/api-gateway.git`。
+  **密码不内置进任何文件**），只是目标换成 `https://git.wangjinding.com/Jidekin/xiaoyin-gateway.git`。
 - **旧的推送脚本已停用并移除**（不再使用）。
 - **`README.md`**「版本号与发布纪律 → 发布流程」一节：推送目标改为 `推 Gitea`。
 - **背景**：旧托管的凭据已实测失效（推送与 `ls-remote` 都回 `Repository Not Found.`）；同期老板起了自建 Gitea
@@ -2006,4 +2006,4 @@ dict 即使一个模型都没变也是**真值** → 每天无漂移也重写一
 - 项目此前**不是 git 仓库**：`git init` 建库、设提交身份、首次提交（**91 个源码文件**）。
 - **`.gitignore` 补充**忽略 `node_modules/`、`frontend/node_modules/`、`frontend/dist/`、`dist/`、`*.egg-info/`、`.DS_Store` —— 否则 `git add -A` 会把 **15342 个 node_modules 文件**塞进仓库。
 - **推送前安全审计**：确认 `.env`、`data/users.json`、`data/history.json`、`data/feedback.json`、`data/feedback_media/` 全部被忽略、无任何密钥/隐私入库（仅无密钥的 `.env.example` 模板随库）。
-- **远程**：远端仓库 `Jidekin/api-gateway`，分支 `master`（2026-10-12 起统一为 `main`），首推成功（远端 `HEAD=6cc65ff` 与本地一致）。`origin` 配为不含凭据的干净地址，**凭据不写入 `.git/config`**；后续推送临时带凭据。
+- **远程**：远端仓库 `Jidekin/xiaoyin-gateway`，分支 `master`（2026-10-12 起统一为 `main`），首推成功（远端 `HEAD=6cc65ff` 与本地一致）。`origin` 配为不含凭据的干净地址，**凭据不写入 `.git/config`**；后续推送临时带凭据。

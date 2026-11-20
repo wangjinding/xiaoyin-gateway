@@ -8,7 +8,7 @@ PORT ?= 8808
 .PHONY: help install run test lint clean
 
 help:  ## 显示帮助
-	@echo "api-gateway 常用命令："
+	@echo "小银网关 常用命令："
 	@echo "  make install  安装依赖"
 	@echo "  make run      本地启动（端口 $(PORT)）"
 	@echo "  make test     跑单元测试（不依赖真实上游）"

@@ -486,7 +486,7 @@ pricing:                     # 人民币/百万 token，用于估算成本
 ## 启动
 
 ```bash
-cd api-gateway
+cd xiaoyin-gateway
 pip install -r requirements.txt
 python run.py            # 默认读 data/gateway.yaml，端口 8808
 ```
@@ -1388,7 +1388,7 @@ VERSION = "2.4.0"     # ← 只改这一处
          后端/代码：supervisorctl restart api-gateway:api-gateway_00
        → 真机验证（线上 healthz / 页面 / 接口）
        → git commit
-       → 推 Gitea（scripts/push_gitea.sh，仓库 Jidekin/api-gateway 分支 main）
+       → 推 Gitea（scripts/push_gitea.sh，仓库 Jidekin/xiaoyin-gateway 分支 main）
 ```
 
 **「只要上生产就必须推」** 是既有硬性规矩：保持"线上跑着的代码 = 仓库里的代码"。**凡是重启上线（后端
@@ -1398,7 +1398,7 @@ restart）或 `npm run build` 覆盖 `frontend/dist` 的代码改动，验证通
 的顺序取凭据（token 是 2026-10-12 建的 Gitea API token，scope `write:repository`）；
 凭据只一次性内嵌进本次推送 URL，**不写 `.git/config`、也不内置进仓库任何文件**；
 退出码 2=没凭据 / 3=工作区不干净 / 4=推送后远端≠本地 / 5=`.git/config` 出现明文。
-仓库 `https://git.wangjinding.com/Jidekin/api-gateway.git`、分支 `main`
+仓库 `https://git.wangjinding.com/Jidekin/xiaoyin-gateway.git`、分支 `main`
 （`remote` 名就叫 `gitea`）。**三个项目分支已统一为 `main`**
 （2026-10-12：api-gateway 原 `master` 改名 `main`，Gitea 默认分支同步改、旧 `master` 分支删除）。
 
