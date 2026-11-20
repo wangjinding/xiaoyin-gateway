@@ -30,7 +30,7 @@ def _explain(r: httpx.Response) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="API Gateway 冒烟测试")
+    parser = argparse.ArgumentParser(description="小银网关 冒烟测试")
     parser.add_argument("--url", default="http://localhost:8808", help="网关地址")
     parser.add_argument("--api-key", default="", help="可选 Bearer key（网关开了鉴权时用）")
     parser.add_argument("--model", default="agnes-3.0-flash", help="测试用文本模型")
