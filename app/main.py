@@ -2586,13 +2586,23 @@ async def images_generations(request: Request, req: ImageRequest, _auth=Depends(
         _metrics.record_call(real_model, pkey, ok=True)
         _metrics.record_latency(real_model, time.time() - t0)
         # 第十轮: 日志补「响应数据」—— 图像响应可能带整段 base64，这里只留可读摘要
-        _imgs = result.get("data") or []
+        # 2026-11-22：规范化图像 data —— 上游可能返回空字符串字段（如 b64_json:''），
+        #   兼容客户端常按「字段存在」判断走哪条分支（OpenMotion 见 b64_json 就按 base64 解析，
+        #   空串 → 空 Buffer → 判为无效图片）。剔除空字符串字段，只留真正有内容的。
+        _data = []
+        for _item in (result.get("data") or []):
+            if isinstance(_item, dict):
+                _item = {k: v for k, v in _item.items() if not (isinstance(v, str) and v == "")}
+            _data.append(_item)
+        result["data"] = _data
+        _imgs = _data
         _first = (_imgs[0] or {}) if _imgs else {}
         _b64 = _first.get("b64_json")
         _resp_sum = {
             "served_model": real_model, "provider": pkey, "n": len(_imgs),
             "elapsed_s": round(time.time() - t0, 1),
             "first": _first.get("url") or (f"b64_json:{_b64[:24]}…" if _b64 else ""),
+              "keys": sorted(_first.keys()),
         }
         _access.add({"method": "POST", "kind": "image", "path": "/v1/images/generations", "rid": rid,
                      "model": req.model, "served": real_model, "provider": pkey, "caller": caller, "ok": True,
