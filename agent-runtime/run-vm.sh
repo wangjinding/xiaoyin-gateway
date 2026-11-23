@@ -57,12 +57,18 @@ if [ ! -s home/profiles/gateway/providers.vm.yml ]; then
       > home/profiles/gateway/providers.vm.yml 2>/dev/null || true
 fi
 
-# 清理上次异常退出留下的残留：陈旧的 nerdctl 名字记录 + CNI 固定 IP 占用
-# （不清理会报 "name is already used" 或新容器拿不到 IP，VM 里只剩 lo）
-rm -f /var/lib/nerdctl/*/names/default/"$NAME" 2>/dev/null || true
-rm -f /var/lib/cni/networks/agent-net/"$VM_IP" 2>/dev/null || true
-
+# 清理上次异常退出留下的残留（不清理会报 "name is already used" 或新容器拿不到 IP）
 nerdctl rm -f "$NAME" >/dev/null 2>&1 || true
+for _try in 1 2 3 4 5 6 7 8 9 10; do
+  nerdctl ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME" || break
+  sleep 2
+done
+# 容器确实没了还报名字冲突 → 说明名字记录陈旧，删掉它
+if ! nerdctl ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
+  rm -f /var/lib/nerdctl/*/names/default/"$NAME" 2>/dev/null || true
+fi
+# 固定 IP 若被旧容器占着，新容器会拿不到地址（VM 里只剩 lo）
+rm -f /var/lib/cni/networks/agent-net/"$VM_IP" 2>/dev/null || true
 nerdctl run -d --name "$NAME" \
   --runtime io.containerd.kata.v2 --network agent-net --ip "$VM_IP" \
   --memory 1536m --cpus 2 \
@@ -82,7 +88,8 @@ for i in $(seq 1 60); do
     # nginx 上游可能停留在旧的随机端口 → 每次启动同步一次
     python3 "$REPO/scripts/sync-nginx-ports.py" >/dev/null 2>&1 || true
     echo "[agent-vm] 就绪：VM $VM_IP:$VM_PORT（第 $((i*2)) 秒）"
-    exit 0
+    READY=1
+    break
   fi
   if ! nerdctl ps --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
     echo "[agent-vm] 容器已退出，日志：" >&2
@@ -90,9 +97,11 @@ for i in $(seq 1 60); do
     exit 1
   fi
 done
-echo "[agent-vm] 120 秒内没等到 token" >&2
-nerdctl logs "$NAME" 2>&1 | tail -20 >&2
-exit 1
+if [ "${READY:-0}" != "1" ]; then
+  echo "[agent-vm] 120 秒内没等到 token" >&2
+  nerdctl logs "$NAME" 2>&1 | tail -20 >&2
+  exit 1
+fi
 
 # ── 4. 看护：容器退出就重启自己（supervisor 负责再把脚本拉起来）────────
 echo "[agent-vm] 进入看护循环（每 30 秒检查）"
