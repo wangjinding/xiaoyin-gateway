@@ -807,8 +807,20 @@ def has_drift(report: dict) -> bool:
 # ── 落盘（--apply）：文本级增 / 删 / 改 ─────────────────────────
 # 为什么不整份重渲染：data/gateway.yaml 里有大量**逐条实测**的手写注释（哪条线实测通了、
 # 哪个模型上游有文档没收录……），整份 dump 会把它们全冲掉。所以这里只动需要动的行。
-_MODEL_ID_LINE = re.compile(r'^      - id:\s*"?(?P<id>[^"\s]+)"?\s*$')
+# `- id:` 的缩进不写死：控制台保存过的配置会用 YAML 的 indentless 序列写法
+# （`models:` 与 `- id:` 同缩进，4 空格），而脚本自己写的是 6 空格。两种都要认。
+_MODEL_ID_LINE = re.compile(r'^(?P<ind>\s*)- id:\s*"?(?P<id>[^"\s]+)"?\s*$')
 _SECTION_LINE = re.compile(r"^(?:  [A-Za-z_][A-Za-z0-9_]*:|[A-Za-z_])")
+_SEG_KEY_IND = re.compile(r"^(\s*)- id:")
+
+
+def _key_indent(seg: list[str], default: int = 8) -> int:
+    """模型块的字段缩进 = `- id:` 行缩进 + 2（兼容 6 空格与 4 空格两种现网写法）。"""
+    for ln in seg:
+        m = _SEG_KEY_IND.match(ln)
+        if m:
+            return len(m.group(1)) + 2
+    return default
 _PRICING_ANY = re.compile(r"^    (?P<mid>[A-Za-z0-9._\-]+):")
 _PRICING_LINE = re.compile(
     r"^(?P<ind>    )(?P<mid>[A-Za-z0-9._\-]+):(?P<pad>\s+)"
@@ -912,25 +924,28 @@ def _insert_after(seg: list[str], pattern: str, newline: str) -> list[str]:
     return seg
 
 
-def _render_model_block(provider: str, mid: str, meta: dict, date: str) -> list[str]:
-    """渲染一个新模型块（缩进跟现网一致：`- id:` 6 空格、字段 8 空格）。"""
-    out = [f"      # {date} 自动同步：官方文档新增（scripts/sync_models.py）\n",
-           f'      - id: "{mid}"\n',
-           f'        display_name: "{meta.get("display_name") or pretty_name(mid)}"\n',
-           f'        type: "{meta.get("type") or "text"}"\n']
+def _render_model_block(provider: str, mid: str, meta: dict, date: str,
+                        item_ind: int = 6) -> list[str]:
+    """渲染一个新模型块（缩进跟现网一致：`- id:` item_ind、字段 item_ind+2）。"""
+    item_pad = " " * item_ind
+    key_pad = " " * (item_ind + 2)
+    out = [f"{item_pad}# {date} 自动同步：官方文档新增（scripts/sync_models.py）\n",
+           f'{item_pad}- id: "{mid}"\n',
+           f'{key_pad}display_name: "{meta.get("display_name") or pretty_name(mid)}"\n',
+           f'{key_pad}type: "{meta.get("type") or "text"}"\n']
     if provider == "opencode":
-        out.append("        # 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）\n")
-        out.append(f'        protocols: ["{meta.get("protocol") or "chat/completions"}"]\n')
+        out.append(f"{key_pad}# 协议线取自官方 Endpoints 表，未逐线实测（现网其它模型是实测过的）\n")
+        out.append(f'{key_pad}protocols: ["{meta.get("protocol") or "chat/completions"}"]\n')
         if meta.get("free"):
-            out.append("        free: true     # 官方价格表标 Free\n")
+            out.append(f"{key_pad}free: true     # 官方价格表标 Free\n")
     elif meta.get("input") is not None:
-        out.append(f"        # 文档现价 ¥{meta['input']:g}/M 输入、¥{meta['output']:g}/M 输出\n")
+        out.append(f"{key_pad}# 文档现价 ¥{meta['input']:g}/M 输入、¥{meta['output']:g}/M 输出\n")
     if provider == "agnes" and meta.get("free"):
         limited = meta["free"] == "limited"
-        out.append(f"        free: true     # {date} 自动同步：文档「当前优惠」写当前"
+        out.append(f"{key_pad}free: true     # {date} 自动同步：文档「当前优惠」写当前"
                    f"{'限时' if limited else ''}免费\n")
         if limited:
-            out.append("        free_limited: true   # 限时免费；文档改口径后同步会自动撤掉这行\n")
+            out.append(f"{key_pad}free_limited: true   # 限时免费；文档改口径后同步会自动撤掉这行\n")
     return out
 
 
@@ -949,7 +964,8 @@ def _add_protocol(seg: list[str], proto: str, date: str) -> list[str]:
             tail = f"   # {date} 自动同步：文档声明的线（现网其它线是实测出来的）"
         body = ", ".join(json.dumps(x, ensure_ascii=False) for x in items)
         return seg[:i] + [f"{m.group(1)}[{body}]{tail}\n"] + seg[i + 1:]
-    return _insert_after(seg, r"^\s*type:", f'        protocols: ["{proto}"]\n')
+    pad = " " * _key_indent(seg)
+    return _insert_after(seg, r"^\s*type:", f'{pad}protocols: ["{proto}"]\n')
 
 
 def _set_free(seg: list[str], want: bool, date: str) -> list[str]:
@@ -959,14 +975,15 @@ def _set_free(seg: list[str], want: bool, date: str) -> list[str]:
     注释滚成「原注释；说明；说明」。不同日期的说明仍会各记一条（那是变更历史，要留）。
     """
     note = f"{date} 自动同步：文档价格表{'标 Free' if want else '已不标 Free'}"
+    pad = " " * _key_indent(seg)
     for i, ln in enumerate(seg):
         if re.match(r"^\s*free:\s*", ln):
             comment = ln.split("#", 1)[1].strip() if "#" in ln else ""
             if note not in comment:
                 comment = f"{comment}；{note}" if comment else note
-            return seg[:i] + [f"        free: {'true' if want else 'false'}     # {comment}\n"] + seg[i + 1:]
+            return seg[:i] + [f"{pad}free: {'true' if want else 'false'}     # {comment}\n"] + seg[i + 1:]
     if want:
-        return _insert_after(seg, r"^\s*type:", f"        free: true     # {note}\n")
+        return _insert_after(seg, r"^\s*type:", f"{pad}free: true     # {note}\n")
     return seg
 
 
@@ -985,6 +1002,7 @@ def _set_context(seg: list[str], ctx: int, out_tok: int, date: str) -> list[str]
     只动这两行，其余原文（含手写注释）不动。
     """
     want = {"context_window": ctx, "max_output_tokens": out_tok}
+    pad = " " * _key_indent(seg)
     seen: set[str] = set()
     for i, ln in enumerate(seg):
         m = _CTX_KEY_RE.match(ln)
@@ -993,12 +1011,12 @@ def _set_context(seg: list[str], ctx: int, out_tok: int, date: str) -> list[str]
         key = m.group(1)
         seen.add(key)
         tail = ln.split("#", 1)[1] if "#" in ln else f"  # 同步 {date}（scripts/sync_models.py）"
-        seg[i] = f"        {key}: {want[key]}    #{tail}"
+        seg[i] = f"{pad}{key}: {want[key]}    #{tail}"
     missing = [k for k in want if k not in seen]
     if missing:
         for i, ln in enumerate(seg):
-            if re.match(r'^\s{8}type:\s*"', ln):
-                extra = [f"        {k}: {want[k]}    # 同步 {date}（scripts/sync_models.py）\n"
+            if re.match(rf'^\s{{{len(pad)}}}type:\s*"', ln):
+                extra = [f"{pad}{k}: {want[k]}    # 同步 {date}（scripts/sync_models.py）\n"
                          for k in missing]
                 seg[i + 1:i + 1] = extra
                 break
@@ -1019,9 +1037,10 @@ def _set_agnes_free(seg: list[str], want: object, date: str) -> list[str]:
     limited = want == "limited"
     note = (f"{date} 自动同步：文档「当前优惠」写当前{'限时' if limited else ''}免费"
             "（scripts/sync_models.py）")
-    extra = [f"        free: true     # {note}\n"]
+    pad = " " * _key_indent(seg)
+    extra = [f"{pad}free: true     # {note}\n"]
     if limited:
-        extra.append("        free_limited: true   # 限时免费；文档改口径后同步会自动撤掉这行\n")
+        extra.append(f"{pad}free_limited: true   # 限时免费；文档改口径后同步会自动撤掉这行\n")
     for i, ln in enumerate(out):
         if re.match(r"^\s*type:\s*", ln):
             return out[:i + 1] + extra + out[i + 1:]
@@ -1130,9 +1149,12 @@ def apply_plan(text: str, plan: dict, date: str) -> str:
         if not blocks:
             continue
         at = max(e for _, e in blocks.values())
+        first_start = min(s0 for s0, _ in blocks.values())
+        m_ind = re.match(r"^(\s*)- id:", lines[first_start])
+        item_ind = len(m_ind.group(1)) if m_ind else 6
         block: list[str] = []
         for mid, meta in sorted(add.items()):
-            block += _render_model_block(prov, mid, meta, date)
+            block += _render_model_block(prov, mid, meta, date, item_ind)
         lines[at:at] = block
 
     # 3) 块内改：补协议线 / 免费标记（按块起点倒序处理，插入不影响未处理块的下标）

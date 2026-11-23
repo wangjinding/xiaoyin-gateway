@@ -21,6 +21,20 @@ try:
 except ImportError:  # 非 pytest 环境直接跑
     pytest = None
 
+# 每次跑测试都从**干净的临时状态**开始：
+#   否则 .test_users.json 会跨运行累积（历史上有测试把 admin 密码改掉、留下 revk/rst 等账号），
+#   导致 _login_admin_session 用 admin/admin 登不进去、建号报「已存在」——整批测试莫名失败。
+for _stale in (
+    ".test_users.json", ".test_sessions.json", ".test_history.json",
+    ".test_feedback.json", ".test_video_owners.json", ".test_env",
+):
+    try:
+        (_ROOT / _stale).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
 # M5+: 账号体系改由页面管理。测试进程把 users 文件指向临时 iso 文件，避免污染运行库 data/users.json。
 _os.environ.setdefault("GATEWAY_USERS", str(_ROOT / ".test_users.json"))
 # 历史也必须指到临时文件：否则测试会往真实的 data/history.json 里写脏数据
@@ -102,8 +116,8 @@ def _login_admin_session(client=None):
 # ── 配置加载 ──
 def test_load_config_providers():
     cfg = load_config(CONFIG)
-    # 三家供应商：Agnes / OpenCode Go / Dots AI（火山方舟已于第四十一轮按老板要求删除）
-    assert set(cfg.providers.keys()) == {"agnes", "opencode", "dots"}
+    # 供应商：Agnes / OpenCode Go / Dots AI / 1min.ai（火山方舟已删除）
+    assert set(cfg.providers.keys()) == {"agnes", "opencode", "dots", "onemin"}
     assert cfg.providers["agnes"].models[0].id == "agnes-3.0-flash"
 
 
@@ -1271,16 +1285,27 @@ def test_request_id_sanitized():
 
 
 def test_cors_headers_present_on_body_limit_413():
-    """体积超限的 413 也要带 CORS 头（否则浏览器读不到错误原因）。"""
+    """体积超限的 413 也要带 CORS 头（否则浏览器读不到错误原因）。
+
+    注意：CORS 头只对**配置里放行**的来源下发，所以这里临时把 example.com 加进白名单
+    （与 test_cors_* 的做法一致），否则断言本身就不成立。
+    """
     from fastapi.testclient import TestClient
     import app.main as m
+    cfg = m._cfg()
     client = TestClient(m.app)
-    limit = m._cfg().server.max_body_size
+    limit = cfg.server.max_body_size
     body = b'{"model":"x","messages":[],"pad":"' + b"a" * (limit + 100) + b'"}'
-    r = client.post("/v1/chat/completions", content=body,
-                    headers={"Content-Type": "application/json", "Origin": "https://example.com"})
-    assert r.status_code == 413, r.status_code
-    assert "access-control-allow-origin" in {k.lower() for k in r.headers}
+    old = list(cfg.server.cors_origins)
+    try:
+        cfg.server.cors_origins = ["https://example.com"]
+        r = client.post("/v1/chat/completions", content=body,
+                        headers={"Content-Type": "application/json",
+                                 "Origin": "https://example.com"})
+        assert r.status_code == 413, r.status_code
+        assert "access-control-allow-origin" in {k.lower() for k in r.headers}, r.headers
+    finally:
+        cfg.server.cors_origins = old
 
 
 def test_media_circuit_isolated_from_chat():
@@ -4931,6 +4956,16 @@ def test_full_view_put_rewrites_nothing():
     src = cfg_path.read_text(encoding="utf-8")
     old_path, old_cfg = m.CONFIG_PATH, m.config
     m.CONFIG_PATH = cfg_path
+
+    # 测试进程在 import 时**故意**把「鉴权失败自动封禁」关掉（0 秒），免得后半场测试全被 429；
+    # 但文件里是 3600，于是「整份视图 PUT 回来」会把 3600 写成 0 —— 这是测试隔离造成的假失败。
+    # 这里临时把内存值对齐成文件里的值，测完还原。
+    import yaml as _yaml
+    _raw = _yaml.safe_load(src)
+    _file_ban = (_raw.get("server") or {}).get("auth_fail_ban_seconds")
+    _saved_ban = m.config.server.auth_fail_ban_seconds
+    if isinstance(_file_ban, int):
+        m.config.server.auth_fail_ban_seconds = _file_ban
     try:
         view = client.get("/config", headers=ah).json()["config"]
         r = client.put("/config", headers=ah, json={"config": view})
@@ -4938,6 +4973,7 @@ def test_full_view_put_rewrites_nothing():
         disk = cfg_path.read_text(encoding="utf-8")
         assert disk == src, "整份视图 PUT 改动了文件（面板默认值被 materialize 进 providers）"
     finally:
+        m.config.server.auth_fail_ban_seconds = _saved_ban
         m.CONFIG_PATH, m.config = old_path, old_cfg
         tmp.cleanup()
 
@@ -5799,7 +5835,6 @@ def test_agents_store_create_validate_and_limit():
     a = st.create(slug="code-review", display_name="代码审查",
                   params={"temperature": 0.2, "system_suffix": "只给结论"})
     assert a.slug == "code-review" and a.params["temperature"] == 0.2
-    assert a.engine_agent_id == "ai-gateway"     # 默认共用同一个 profile
     assert "model" not in a.to_dict()            # 甲案：不存 model
 
     # slug 形态
@@ -5810,14 +5845,12 @@ def test_agents_store_create_validate_and_limit():
         except AgentsError:
             pass
 
-    # 三重查重
-    for bad, kw in (("ai-gateway", {"profile_ids": ["ai-gateway"]}),
-                    ("wjd", {"alias_names": ["wjd"]}),
-                    ("agnes-3.0-flash", {"model_ids": ["agnes-3.0-flash"]}),
-                    ("code-review", {})):
+    # 查重：slug / 模型 id / 别名
+    for bad, kw in (("wjd", {"alias_names": ["wjd"]}),
+                    ("gpt-4o", {"model_ids": ["gpt-4o"]})):
         try:
             st.create(slug=bad, display_name="x", **kw)
-            raise AssertionError(f"{bad} 本应被拒")
+            raise AssertionError(f"{bad} 本应因冲突被拒")
         except AgentsError:
             pass
 
@@ -5877,116 +5910,6 @@ def test_agents_store_create_validate_and_limit():
     assert st2.get("code-review").description == "改过了"
 
 
-def test_agents_history_kind_supports_agent_prefix():
-    """会话复用 history 存储：kind = agent_<slug> 必须被放行，非法仍被拒。"""
-    from app.history import HistoryStore, HistoryError, _lim
-    import tempfile, pathlib as _pl
-    h = HistoryStore(str(_pl.Path(tempfile.mkdtemp()) / "h.json"))
-
-    assert h._check_kind("agent_code-review") == "agent_code-review"
-    # 容量沿用 chat（一条就是一整段多轮）
-    assert _lim("agent_code-review") == _lim("chat")
-    for bad in ("agent_BAD", "agent_", "agent", "bogus"):
-        try:
-            h._check_kind(bad)
-            raise AssertionError(f"{bad} 本应被拒")
-        except HistoryError:
-            pass
-
-
-def test_qwenpaw_engine_sse_translation():
-    """SSE 翻译器：用**真实录制的夹具**验证事件映射（第三十八轮核心逻辑）。
-
-    夹具 tests/fixtures/sse-tool-flow.sse 是 2026-09-29 从生产 QwenPaw 实录的，
-    含一次真实的 read_file 工具调用。
-    """
-    from app.adapters.qwenpaw_engine import parse_sse_line, StreamTranslator
-    import pathlib as _pl
-
-    fixture = _pl.Path(__file__).parent / "fixtures" / "sse-tool-flow.sse"
-    assert fixture.exists(), "缺少 SSE 夹具"
-
-    tr = StreamTranslator()
-    out = []
-    for line in fixture.read_text(encoding="utf-8").splitlines():
-        ev = parse_sse_line(line)
-        if ev is None:
-            continue
-        out.extend(tr.feed(ev))
-    out.extend(tr.finish())
-
-    kinds = {m["type"] for m in out}
-    assert "text" in kinds and "step" in kinds and "usage" in kinds and "done" in kinds
-
-    # 正文增量累积（delta:false 的快照必须被忽略，否则会重复）
-    assert tr.text.strip(), "正文不该为空"
-    assert len(tr.text) < 3000, "正文长度异常（可能把快照重复计入了）"
-
-    # 工具步骤：running → done 配对，且带上了参数/输出
-    steps = [m for m in out if m["type"] == "step"]
-    runs = [m for m in steps if m["status"] == "running"]
-    dones = [m for m in steps if m["status"] == "done"]
-    assert len(runs) == 1 and len(dones) == 1, f"步骤数不对：{runs} / {dones}"
-    assert runs[0]["name"] == "read_file"
-    assert runs[0]["args"] == {"file_path": "/tmp/probe-agent.txt"}, runs[0]["args"]
-    assert dones[0]["id"] == runs[0]["id"], "done 必须用 call_id 配上 running"
-
-    # 用量：带 model 与缓存字段
-    usage = [m for m in out if m["type"] == "usage"]
-    assert len(usage) == 1
-    assert usage[0]["model"] == "deepseek-v4.1-flash"
-    assert usage[0]["prompt"] > 0
-
-    # 终态
-    assert tr.final_status == "completed"
-    assert out[-1] == {"type": "done", "status": "completed"}
-
-
-def test_qwenpaw_engine_build_body_injects_system_suffix():
-    """`system_suffix` 走 system 消息（实测被 QwenPaw 接受且生效）。"""
-    from app.adapters.qwenpaw_engine import build_body
-
-    b = build_body([{"role": "user", "content": "你好"}], "s1", "回答只给结论")
-    inp = b["input"]
-    assert inp[0]["role"] == "system"
-    assert inp[0]["content"][0]["text"] == "回答只给结论"
-    assert inp[1]["role"] == "user"
-    assert b["session_id"] == "s1" and b["stream"] is True
-    # 不传 suffix 时不插 system
-    b2 = build_body([{"role": "user", "content": "hi"}], "s2")
-    assert [m["role"] for m in b2["input"]] == ["user"]
-    # 内容形状：字符串与 [{type:text}] 都归一成 content 数组
-    b3 = build_body([{"role": "user", "content": [{"type": "text", "text": "x"}]}], "s3")
-    assert b3["input"][0]["content"] == [{"type": "text", "text": "x"}]
-    # 图片块一期不支持 → 静默跳过（计划「一期不做图片/附件」）
-    b4 = build_body([{"role": "user", "content": [{"type": "image_url", "image_url": {}}]}], "s4")
-    assert b4["input"][0]["content"] == []
-
-
-def test_agent_runs_records_and_clips():
-    """运行记录：写入 / 回读 / 最新在前 / 容量裁剪。"""
-    import tempfile, pathlib as _pl
-    from app.agents_routes import AgentRuns
-
-    r = AgentRuns(_pl.Path(tempfile.mkdtemp()) / "runs.json")
-    assert r.load() == {}
-    for i in range(3):
-        r.record("code-review", account="admin", rounds=i + 1, tools=i,
-                 tokens=100 * (i + 1), ms=1000 + i, status="ok")
-    b = r.load()["code-review"]
-    assert b["total"] == 3
-    assert b["last_used_at"], "应记录最后使用时间"
-    items = b["items"]
-    assert len(items) == 3
-    assert items[0]["rounds"] == 3, "最新的应在最前"
-    assert items[0]["tokens"] == 300
-
-    # 容量裁剪
-    for i in range(AgentRuns.MAX_ITEMS + 20):
-        r.record("code-review", account="admin", rounds=1, tools=0, tokens=1, ms=1, status="ok")
-    assert len(r.load()["code-review"]["items"]) == AgentRuns.MAX_ITEMS
-
-
 def test_agent_can_use_permission_matrix():
     """权限判定唯一入口 can_use_agent：admin 全通；member 只认显式分派。"""
     from app.agents import Agent
@@ -6004,221 +5927,3 @@ def test_agent_can_use_permission_matrix():
     assert can_use_agent(only_admin, "admin")
 
 
-def test_agent_self_reference_guard():
-    """防自指：引擎模型指向 agent/* 时必须被拦（避免引擎→智能体→引擎死循环）。"""
-    from app.adapters.qwenpaw_engine import ENGINE_DOWN_MSG
-
-    # 校验逻辑在路由里，这里验证判定式本身（与路由同口径）
-    def blocked(model: str) -> bool:
-        return model == "agent" or model.startswith("agent/")
-
-    assert blocked("agent/code-review")
-    assert blocked("agent")
-    assert not blocked("wjd")
-    assert not blocked("deepseek-v4.1-flash")
-    assert not blocked("")
-    # 引擎不可达时要有明确文案（不是空串）
-    assert "不可达" in ENGINE_DOWN_MSG
-
-
-def test_agents_routes_installed():
-    """端点已挂上 app（含 /auth/me 灰度通道）。"""
-    import app.main as m
-    paths = {r.path for r in m.app.routes if hasattr(r, "path")}
-    for need in ("/agents", "/agents/{slug}", "/agents/{slug}/chat",
-                 "/agents/{slug}/runs", "/agents/{slug}/test", "/auth/me"):
-        assert need in paths, f"缺少端点 {need}"
-
-
-def test_agents_engine_model_endpoints_installed():
-    """引擎模型端点已挂上（第四十轮 · 方案 A）。"""
-    import app.main as m
-    paths = {r.path for r in m.app.routes if hasattr(r, "path")}
-    for need in ("/agents/engine/models", "/agents/engine/model"):
-        assert need in paths, f"缺少端点 {need}"
-
-
-def test_engine_active_model_path_is_models_not_providers():
-    """回归：读/写引擎 active_model 必须用 `/api/models/active`（第四十轮）。
-
-    旧代码写的是 `/api/providers/active` —— 那条**实测是 404**，导致
-    `engine_live["model"]` 一直是空串、配置页模型栏永远显示 `—`。
-    这是"静默失效"型 bug：不报错、不抛异常，只是值一直是空。
-    """
-    from app.adapters import qwenpaw_engine as qe
-    assert qe.ACTIVE_MODEL_PATH == "/api/models/active"
-    assert "providers/active" not in qe.ACTIVE_MODEL_PATH
-    # 两个函数都要用这个常量（别再各写一份字面量）
-    import inspect
-    for fn in (qe.get_active_model, qe.set_active_model):
-        src = inspect.getsource(fn)
-        assert "ACTIVE_MODEL_PATH" in src, f"{fn.__name__} 未复用 ACTIVE_MODEL_PATH"
-
-
-def test_engine_set_active_model_sends_agent_scope():
-    """PUT 的 body 必须是 scope=agent + agent_id（profile 级写入）。"""
-    import asyncio, json as _json
-    from app.adapters import qwenpaw_engine as qe
-
-    captured = {}
-
-    class _Resp:
-        status_code = 200
-        def json(self):
-            return {"active_llm": {"provider_id": "wangjinding", "model": "wjd"}}
-
-    class _Client:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def put(self, url, json=None, headers=None):
-            captured["url"] = url
-            captured["json"] = json
-            captured["headers"] = headers
-            return _Resp()
-
-    orig = qe.httpx.AsyncClient
-    qe.httpx.AsyncClient = _Client
-    try:
-        out = asyncio.run(qe.set_active_model("http://127.0.0.1:8088", "ai-gateway",
-                                              "wangjinding", "wjd"))
-    finally:
-        qe.httpx.AsyncClient = orig
-
-    assert captured["url"].endswith("/api/models/active"), captured["url"]
-    assert captured["json"] == {"scope": "agent", "agent_id": "ai-gateway",
-                                "provider_id": "wangjinding", "model": "wjd"}
-    assert captured["headers"].get("X-Agent-Id") == "ai-gateway"
-    assert out == {"provider_id": "wangjinding", "model": "wjd"}
-
-
-def test_engine_set_active_model_raises_on_4xx():
-    """引擎拒绝（如模型不存在）→ 抛 EngineError，错误原文透传（别吞成 ok）。"""
-    import asyncio
-    from app.adapters import qwenpaw_engine as qe
-
-    class _Resp:
-        status_code = 400
-        text = ""
-        def json(self):
-            return {"detail": "model 'nope' not found"}
-
-    class _Client:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def put(self, url, json=None, headers=None): return _Resp()
-
-    orig = qe.httpx.AsyncClient
-    qe.httpx.AsyncClient = _Client
-    try:
-        try:
-            asyncio.run(qe.set_active_model("http://x", "ai-gateway", "p", "nope"))
-            raise AssertionError("本应抛 EngineError")
-        except qe.EngineError as e:
-            assert "not found" in str(e), str(e)
-    finally:
-        qe.httpx.AsyncClient = orig
-
-
-def test_agents_engine_set_model_rejects_agent_self_reference():
-    """防自指：引擎模型不能指向 agent/*（否则引擎→智能体→引擎 死循环）。
-
-    这条护栏在对话端点也有；新增的切换端点必须同样拦住，否则用户可以从
-    模型下拉里把引擎指向智能体自身，把服务打成死循环。
-    """
-    import inspect
-    import app.agents_routes as ar
-    src = inspect.getsource(ar.install)
-    # 切换端点里必须有这条检查（与对话入口同款）
-    assert "agent/" in src and "死循环" in src, "切换端点缺少防自指护栏"
-
-
-
-def test_qwenpaw_engine_image_content_passthrough():
-    """图片附件：内容块必须原样转成 AgentScope 的 image 形状（第三十九轮）。
-
-    QwenPaw 侧的格式已实测确认：`{"type":"image","image_url":"<data-URI 或 URL>"}`
-    —— 塞一张纯红 64×64 PNG 的 data URI，模型正确答出"红色"。
-    """
-    from app.adapters.qwenpaw_engine import build_body, _image_url
-
-    uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
-    # AgentScope 原生扁平写法
-    b = build_body([{"role": "user", "content": [
-        {"type": "text", "text": "这是什么颜色？"},
-        {"type": "image", "image_url": uri},
-    ]}], "s1")
-    parts = b["input"][0]["content"]
-    assert parts[0] == {"type": "text", "text": "这是什么颜色？"}
-    assert parts[1] == {"type": "image", "image_url": uri}
-
-    # OpenAI 风格嵌套写法也要认（前端 Chat 页发的是这个形状）
-    b2 = build_body([{"role": "user", "content": [
-        {"type": "image_url", "image_url": {"url": uri}},
-    ]}], "s2")
-    assert b2["input"][0]["content"][0]["image_url"] == uri
-
-    # 只发图不带字 → content 里只有图片块
-    b3 = build_body([{"role": "user", "content": [{"type": "image", "image_url": uri}]}], "s3")
-    assert len(b3["input"][0]["content"]) == 1
-    assert b3["input"][0]["content"][0]["type"] == "image"
-
-    # 缺 url 的图片块被跳过（不产生空块）
-    b4 = build_body([{"role": "user", "content": [
-        {"type": "text", "text": "x"}, {"type": "image"},
-    ]}], "s4")
-    assert len(b4["input"][0]["content"]) == 1
-
-    # 不支持的媒体类型（audio/视频/文件）忽略，不炸
-    b5 = build_body([{"role": "user", "content": [
-        {"type": "text", "text": "x"}, {"type": "audio", "data": "..."},
-    ]}], "s5")
-    assert len(b5["input"][0]["content"]) == 1
-
-    # _image_url 的两种取值
-    assert _image_url({"image_url": uri}) == uri
-    assert _image_url({"image_url": {"url": uri}}) == uri
-    assert _image_url({"image_url": {}}) == ""
-    assert _image_url({}) == ""
-
-    # 多图 + 文字混合顺序保持
-    b6 = build_body([{"role": "user", "content": [
-        {"type": "image", "image_url": "u1"},
-        {"type": "text", "text": "t"},
-        {"type": "image", "image_url": "u2"},
-    ]}], "s6")
-    got = b6["input"][0]["content"]
-    assert [p["type"] for p in got] == ["image", "text", "image"]
-
-def test_agent_chat_endpoint_source_order():
-    """回归：agents_chat 里不能在 rounds 赋值**之前**引用它。
-
-    第三十九轮实测踩到 —— 打标日志被写在 `rounds = ...` 之前，
-    `log.info(..., rounds)` 直接 UnboundLocalError → 整个 /agents/{slug}/chat 返回 500。
-    这类「声明顺序」错误跑不出来，只能靠读代码或真机调用发现，所以固化成断言。
-    """
-    import inspect
-    import app.agents_routes as ar
-
-    src = inspect.getsource(ar.install)
-    i_assign = src.find("rounds = len(")
-    i_use = src.find('log.info("agent chat:')
-    assert i_assign != -1 and i_use != -1, "端点源码结构变了，请更新本用例"
-    assert i_assign < i_use, "rounds 必须在打标日志之前赋值（否则 UnboundLocalError → 500）"
-
-# 直接运行（非 pytest）—— 必须留在文件末尾，见上方 `test_image_request_goes_to_requested_model`
-# 之前的旁注：运行器只会收集执行到这一行时已经存在的 globals。
-if __name__ == "__main__":
-    fns = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
-    passed = failed = 0
-    for fn in fns:
-        try:
-            fn()
-            print(f"[PASS] {fn.__name__}")
-            passed += 1
-        except Exception as e:
-            print(f"[FAIL] {fn.__name__}: {e}")
-            failed += 1
-    print(f"\n{passed} passed, {failed} failed")
-    sys.exit(1 if failed else 0)

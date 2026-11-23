@@ -2,12 +2,12 @@
 
 背景与设计见 `docs/agents-dev-plan.md`。要点：
 
-- **路线 A**：界面在网关，引擎是 QwenPaw（独立 profile `ai-gateway`）。
+- 界面与执行都在内嵌的 DeepSeek Harness 里（`/agent/`），网关只做登记与权限。
 - **甲案**：模型是 profile 级的（请求级指定无效，已实测），而所有智能体共用
   `ai-gateway` 一个 profile ⇒ **所有智能体共用同一个模型**。所以这里**不存 model**。
 - 智能体之间的区别只剩：名称/描述 + 参数（temperature/max_tokens/top_p/system_suffix）
   + 各自的会话历史。
-- 提示词归 QwenPaw 管（决策②），这里**不存 system_prompt** 主提示词；
+- 提示词归 DeepSeek Harness 管，这里**不存 system_prompt** 主提示词；
   `params.system_suffix` 只是一小条角色补充（网关侧注入）。
 
 存储：`data/agents.yaml`（600、原子写、mtime 热载）。**配置无秘密，可入库**。
@@ -39,7 +39,7 @@ AGENT_PARAM_KEYS: frozenset[str] = frozenset({
 })
 
 #: system_suffix 长度上限（字符）。它是"角色微调"，不是主提示词通道 ——
-#: 要写长提示词请去 QwenPaw 建 profile（决策 ㉖ 的边界）。
+#: 要写长提示词请到内嵌 DSH 的工作区里写。
 SYSTEM_SUFFIX_MAX = 2000
 
 #: 未归档智能体的数量上限（决策 ⑫，软上限）。
@@ -51,14 +51,6 @@ ALLOWED_ROLES = frozenset({"admin", "member"})
 #: 允许的状态。
 ALLOWED_STATUS = frozenset({"draft", "published", "retired"})
 
-#: 引擎类型（一期只有 qwenpaw 一种）。
-ENGINE_TYPES = frozenset({"qwenpaw"})
-
-#: 默认引擎地址（QwenPaw 本机，免鉴权）。
-DEFAULT_ENGINE_URL = "http://127.0.0.1:8088"
-
-#: 默认引擎 profile id。
-DEFAULT_ENGINE_AGENT = "ai-gateway"
 
 
 class AgentsError(ValueError):
@@ -108,7 +100,7 @@ def validate_params(params: Any) -> dict[str, Any]:
             if len(v) > SYSTEM_SUFFIX_MAX:
                 raise AgentsError(
                     f"params.system_suffix 过长（上限 {SYSTEM_SUFFIX_MAX} 字符）——"
-                    "它是角色补充，主提示词请到 QwenPaw 的 profile 里改"
+                    "它是角色补充，主提示词请到内嵌 DSH 的工作区里改"
                 )
             out[k] = v.strip()
             continue
@@ -137,9 +129,6 @@ class Agent:
     display_name: str
     description: str = ""
     params: dict[str, Any] = field(default_factory=dict)
-    engine_type: str = "qwenpaw"
-    engine_base_url: str = DEFAULT_ENGINE_URL
-    engine_agent_id: str = DEFAULT_ENGINE_AGENT
     access_roles: list[str] = field(default_factory=lambda: ["admin"])
     access_users: list[str] = field(default_factory=list)
     status: str = "published"
@@ -153,11 +142,6 @@ class Agent:
             "display_name": self.display_name,
             "description": self.description,
             "params": dict(self.params),
-            "engine": {
-                "type": self.engine_type,
-                "base_url": self.engine_base_url,
-                "agent_id": self.engine_agent_id,
-            },
             "access": {"roles": list(self.access_roles), "users": list(self.access_users)},
             "status": self.status,
             "created_at": self.created_at,
@@ -170,7 +154,6 @@ class Agent:
         注意：**不含** system_suffix 之外的敏感内容 —— 由路由层按角色再裁。
         """
         d = self.to_dict()
-        d["engine_type"] = self.engine_type
         d["access_scope"] = "admin" if self.access_roles == ["admin"] and not self.access_users else "custom"
         return d
 
@@ -199,19 +182,6 @@ def _parse_agent(slug: str, raw: Any) -> Agent:
 
     params = validate_params(raw.get("params"))
 
-    eng = raw.get("engine") or {}
-    if not isinstance(eng, dict):
-        raise AgentsError(f"{where}.engine 必须是映射")
-    etype = eng.get("type", "qwenpaw")
-    if etype not in ENGINE_TYPES:
-        raise AgentsError(
-            f"{where}.engine.type 只支持 {'/'.join(sorted(ENGINE_TYPES))}（当前：{etype}）"
-        )
-    base_url = _require_str(eng.get("base_url") or DEFAULT_ENGINE_URL,
-                            f"{where}.engine.base_url", maxlen=200)
-    agent_id = _require_str(eng.get("agent_id") or DEFAULT_ENGINE_AGENT,
-                            f"{where}.engine.agent_id", maxlen=64)
-
     acc = raw.get("access") or {}
     if not isinstance(acc, dict):
         raise AgentsError(f"{where}.access 必须是映射")
@@ -239,9 +209,6 @@ def _parse_agent(slug: str, raw: Any) -> Agent:
         display_name=display_name,
         description=description,
         params=params,
-        engine_type=etype,
-        engine_base_url=base_url,
-        engine_agent_id=agent_id,
         access_roles=list(roles),
         access_users=list(u.strip() for u in users if u.strip()),
         status=status,
@@ -328,11 +295,10 @@ class AgentStore:
             return sum(1 for a in self._agents.values() if a.status != "retired")
 
     def slug_conflicts(self, slug: str, *, model_ids: list[str] | None = None,
-                       alias_names: list[str] | None = None,
-                       profile_ids: list[str] | None = None) -> str | None:
+                       alias_names: list[str] | None = None) -> str | None:
         """返回冲突说明；无冲突返回 None。
 
-        三重查重（计划 Step 1）：不能撞已有智能体 slug、模型 id、别名、QwenPaw profile id ——
+        查重：不能撞已有智能体 slug、模型 id、虚拟模型别名 ——
         因为智能体以后可能以 `agent/<slug>` 形式暴露给客户端，撞名会混。
         """
         if slug in self._agents:
@@ -341,8 +307,6 @@ class AgentStore:
             return f"slug「{slug}」与模型 id 冲突"
         if alias_names and slug in alias_names:
             return f"slug「{slug}」与虚拟模型别名冲突"
-        if profile_ids and slug in profile_ids:
-            return f"slug「{slug}」与 QwenPaw 智能体 profile 冲突"
         return None
 
     # ── 写 ──
@@ -355,24 +319,17 @@ class AgentStore:
                 "display_name": a.display_name,
                 "description": a.description,
                 "params": dict(a.params),
-                "engine": {
-                    "type": a.engine_type,
-                    "base_url": a.engine_base_url,
-                    "agent_id": a.engine_agent_id,
-                },
                 "access": {"roles": list(a.access_roles), "users": list(a.access_users)},
                 "status": a.status,
                 "created_at": a.created_at,
                 "updated_at": a.updated_at,
             }
         head = (
-            "# 智能体定义（第三十八轮 · 路线 A：界面在网关，引擎是 QwenPaw）\n"
+            "# 智能体定义（内嵌 DeepSeek Harness）\n"
             "#\n"
             "# 说明：\n"
-            "#   · 所有智能体共用 QwenPaw 的同一个 profile（engine.agent_id），\n"
-            "#     也共用同一个模型 —— 模型是 profile 级设置（请求级指定无效，已实测）。\n"
-            "#   · 提示词主档归 QwenPaw 管（改 SOUL.md / AGENTS.md）；\n"
-            "#     这里的 params.system_suffix 只是一小条角色补充。\n"
+            "#   · 执行与界面都在内嵌的 DeepSeek Harness 里（/agent/）；\n"
+            "#     模型在 DSH 里选，网关只负责登记与权限。\n"
             "#   · 本文件不含秘密，可入版本库。\n"
             "#   · 归档（status: retired）不计入 max_agents 上限。\n"
         )
@@ -401,17 +358,14 @@ class AgentStore:
                params: dict[str, Any] | None = None,
                access_roles: list[str] | None = None,
                access_users: list[str] | None = None,
-               engine_base_url: str | None = None,
-               engine_agent_id: str | None = None,
                status: str = "published",
                model_ids: list[str] | None = None,
-               alias_names: list[str] | None = None,
-               profile_ids: list[str] | None = None) -> Agent:
+               alias_names: list[str] | None = None,) -> Agent:
         with self._lock:
             self._load()   # 先取最新盘上状态
             validate_slug(slug)
             conflict = self.slug_conflicts(
-                slug, model_ids=model_ids, alias_names=alias_names, profile_ids=profile_ids
+                slug, model_ids=model_ids, alias_names=alias_names
             )
             if conflict:
                 raise AgentsError(conflict)
@@ -423,11 +377,6 @@ class AgentStore:
                 "display_name": display_name,
                 "description": description,
                 "params": params or {},
-                "engine": {
-                    "type": "qwenpaw",
-                    "base_url": engine_base_url or DEFAULT_ENGINE_URL,
-                    "agent_id": engine_agent_id or DEFAULT_ENGINE_AGENT,
-                },
                 "access": {"roles": access_roles or ["admin"], "users": access_users or []},
                 "status": status,
                 "created_at": _now(),
@@ -438,7 +387,10 @@ class AgentStore:
             return a
 
     #: 允许通过 update 改的字段（其余字段一期只读，见计划）
-    UPDATABLE = frozenset({"display_name", "description", "params", "status"})
+    UPDATABLE = frozenset({
+        "display_name", "description", "params", "status",
+        "access_roles", "access_users",
+    })
 
     def update(self, slug: str, patch: dict[str, Any]) -> Agent:
         with self._lock:
@@ -457,11 +409,6 @@ class AgentStore:
                 "display_name": patch.get("display_name", a.display_name),
                 "description": patch.get("description", a.description),
                 "params": patch.get("params", dict(a.params)),
-                "engine": {
-                    "type": a.engine_type,
-                    "base_url": a.engine_base_url,
-                    "agent_id": a.engine_agent_id,
-                },
                 "access": {"roles": list(a.access_roles), "users": list(a.access_users)},
                 "status": patch.get("status", a.status),
                 "created_at": a.created_at,

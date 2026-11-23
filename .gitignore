@@ -70,3 +70,5 @@ data/calllog.db-shm
 *.bak-*
 *.bak
 *.orig
+# 运行态端口登记（部署时动态分配）
+data/ports.json

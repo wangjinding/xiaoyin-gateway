@@ -10,7 +10,7 @@
       <header v-if="!isMobile" class="top">
         <div>
           <h2>{{ pageTitle }}</h2>
-          <div class="crumb">{{ pageSub }}</div>
+          <div v-if="pageSub" class="crumb">{{ pageSub }}</div>
         </div>
         <div class="top-right">
           <div class="host">
@@ -158,6 +158,8 @@ const pageTitle = computed(() => {
   return key ? t(`nav.menu${key}`) : t('nav.control')
 })
 const pageSub = computed(() => {
+  // 智能体页整块是内嵌的 DSH，不需要副标题（也给 iframe 多留点高度）
+  if (route.name === 'agents') return ''
   const key = String(route.name || '')
   const sub = t(`nav.sub${key}`)
   // 没写副标题的页面，t() 会把 key 原样返回 —— 这时显示连接地址兜底

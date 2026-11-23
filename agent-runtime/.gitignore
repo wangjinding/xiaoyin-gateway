@@ -1,0 +1,17 @@
+# 依赖（约 1.2GB，部署时 npm ci）
+node_modules/
+
+# 运行时状态：凭据、会话、临时表 —— 一律不入库
+home/.credentials.yaml
+home/.anonymous-user-id
+home/sessions/
+home/state/
+home/storages/
+home/workspaces/
+home/logs/
+
+# 自动生成的配置
+home/profiles/*/model-overlay.yml
+home/profiles/*/providers.gen.yml
+
+*.log

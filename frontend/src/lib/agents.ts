@@ -1,7 +1,7 @@
-// 智能体（第三十八轮 · 路线 A）—— 接口封装 + SSE 解析。
+// 智能体 —— 接口封装（只服务内嵌的完整 DSH）
 //
-// 设计见 docs/agents-dev-plan.md；SSE 协议见 docs/qwenpaw-agent-api-sse.md。
-// 后端把 QwenPaw 的事件翻译成这几种（前端不必懂 AgentScope）：
+// 智能体这一层只有三件事：登记、权限、入口。
+// 执行与界面都在内嵌的 DeepSeek Harness（/agent/）里，网关不参与。
 
 import { getToken } from '../api'
 
@@ -9,44 +9,26 @@ export interface AgentItem {
   slug: string
   display_name: string
   description: string
-  params?: { temperature?: number; max_tokens?: number; top_p?: number; system_suffix?: string }
-  engine?: { type: string; base_url: string; agent_id: string }
-  access?: { roles: string[]; users: string[] }
+  params: Record<string, any>
+  access: { roles: string[]; users: string[] }
+  access_scope: string
   status: 'draft' | 'published' | 'retired'
-  created_at?: string
-  updated_at?: string
-  access_scope?: string
-  last_used_at?: string
-  run_total?: number
-  engine_model?: string
-  engine_ready?: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface AgentListResp {
   agents: AgentItem[]
   max_agents: number
   active: number
-  engine: { model: string; ready: boolean; base_url: string; agent_id: string }
+  dsh: { ready: boolean; port: number }
 }
 
-export interface AgentRun {
-  at: string
-  account: string
-  rounds: number
-  tools: number
-  tokens: number
-  ms: number
-  status: string
+export interface DshEntry {
+  url: string
+  ready: boolean
+  port: number
 }
-
-/** 后端 SSE 的事件类型。 */
-export type AgentEvent =
-  | { type: 'start'; slug: string; session_id: string }
-  | { type: 'text'; text: string }
-  | { type: 'step'; id: string; name?: string; args?: any; status: 'running' | 'done'; ms?: number; output?: any }
-  | { type: 'usage'; prompt: number; completion: number; cached: number; model: string; provider: string; context_ratio?: number }
-  | { type: 'done'; status: string }
-  | { type: 'error'; message: string }
 
 function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${getToken()}` }
@@ -65,103 +47,19 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T
 }
 
-export const listAgents = (includeRetired = false) =>
-  req<AgentListResp>(`/agents${includeRetired ? '?include_retired=true' : ''}`)
+export const listAgents = () => req<AgentListResp>('/agents')
 
 export const createAgent = (body: Record<string, any>) =>
-  req<{ status: string; agent: AgentItem }>('/agents', { method: 'POST', body: JSON.stringify(body) })
+  req<AgentItem>('/agents', { method: 'POST', body: JSON.stringify(body) })
 
 export const updateAgent = (slug: string, patch: Record<string, any>) =>
-  req<{ status: string; agent: AgentItem }>(`/agents/${slug}`, { method: 'PUT', body: JSON.stringify(patch) })
+  req<AgentItem>(`/agents/${slug}`, { method: 'PUT', body: JSON.stringify(patch) })
 
 export const retireAgent = (slug: string) =>
-  req<{ status: string }>(`/agents/${slug}`, { method: 'DELETE' })
+  req<AgentItem>(`/agents/${slug}`, { method: 'DELETE' })
 
 export const restoreAgent = (slug: string) =>
-  req<{ status: string; agent: AgentItem }>(`/agents/${slug}/restore`, { method: 'POST' })
+  req<AgentItem>(`/agents/${slug}/restore`, { method: 'POST' })
 
-export const agentRuns = (slug: string) =>
-  req<{ slug: string; total: number; last_used_at: string; items: AgentRun[] }>(`/agents/${slug}/runs`)
-
-export const testAgent = (slug: string) =>
-  req<{ ok: boolean; ms: number; detail: string }>(`/agents/${slug}/test`, { method: 'POST' })
-
-export const agentSessions = (slug: string) =>
-  req<{ slug: string; kind: string; items: any[] }>(`/agents/${slug}/sessions`)
-
-/** 引擎可选模型清单 + 当前生效模型（第四十轮 · 方案 A：所有智能体共用）。 */
-export interface EngineModelOption {
-  provider_id: string
-  provider_name: string
-  model: string
-  vision: boolean
-}
-export interface EngineModelsResp {
-  options: EngineModelOption[]
-  current: { provider_id: string; model: string }
-  engine: { base_url: string; agent_id: string; ready: boolean }
-  scope_note: string
-}
-
-export const engineModels = () => req<EngineModelsResp>('/agents/engine/models')
-
-/** 切换引擎模型（即时生效，不用重启）。 */
-export const setEngineModel = (providerId: string, model: string) =>
-  req<{ status: string; current: { provider_id: string; model: string } }>(
-    '/agents/engine/model',
-    { method: 'PUT', body: JSON.stringify({ provider_id: providerId, model }) },
-  )
-
-export const stopAgent = (slug: string, chatId: string) =>
-  req<{ status: string }>(`/agents/${slug}/stop?chat_id=${encodeURIComponent(chatId)}`, { method: 'POST' })
-
-/**
- * 与智能体对话（SSE 流式）。逐事件回调 —— 与 Chat.vue 的流式处理同款思路。
- *
- * 返回一个 abort 函数（停止按钮用）。注意：网关侧的"停止"是转发给引擎的
- * /console/chat/stop；前端 abort 只是断开本地连接，两者可同时用。
- */
-export function streamAgentChat(
-  slug: string,
-  messages: { role: string; content: string | any[] }[],
-  sessionId: string,
-  onEvent: (ev: AgentEvent) => void,
-): () => void {
-  const ctrl = new AbortController()
-  ;(async () => {
-    try {
-      const r = await fetch(`/agents/${slug}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ messages, session_id: sessionId }),
-        signal: ctrl.signal,
-      })
-      if (!r.ok) {
-        const body = await r.json().catch(() => null)
-        const msg = body?.error?.message || body?.detail || `HTTP ${r.status}`
-        onEvent({ type: 'error', message: String(msg) })
-        return
-      }
-      const reader = r.body!.getReader()
-      const dec = new TextDecoder()
-      let buf = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += dec.decode(value, { stream: true })
-        const parts = buf.split('\n\n')
-        buf = parts.pop() || ''
-        for (const part of parts) {
-          const line = part.trim()
-          if (!line.startsWith('data:')) continue
-          try {
-            onEvent(JSON.parse(line.slice(5).trim()) as AgentEvent)
-          } catch { /* 忽略坏帧 */ }
-        }
-      }
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') onEvent({ type: 'error', message: String(e?.message || e) })
-    }
-  })()
-  return () => ctrl.abort()
-}
+/** 完整 DSH 的访问地址（带运行时 token，只有后端读得到）。 */
+export const dshEntry = () => req<DshEntry>('/agents/dsh/entry')

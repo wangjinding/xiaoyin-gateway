@@ -506,12 +506,16 @@ async def limit_body(request: Request, call_next):
             msg = f"请求体超过上限 {max_size} 字节"
         else:
             msg = "非法或不完整的请求体"
-        return UTF8JSONResponse(
+        resp = UTF8JSONResponse(
             status_code=code,
             content={"error": {"message": msg,
                                "type": "invalid_request_error", "code": str(code)},
                     "x_request_id": rid},
         )
+        # 短路响应同样要带 CORS 头：否则浏览器只看到 CORS 报错、
+        # 读不到「请求体超限」的真实原因。
+        _apply_cors(request, resp)
+        return resp
     return await call_next(request)
 
 
@@ -691,6 +695,14 @@ async def unhandled_error_guard(request: Request, call_next):
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     resp = await call_next(request)
+    # 内嵌 DSH（/agent/*）：安全头由运行时自己给，网关不要覆盖
+    #   —— 它的启动页用内联脚本定义 __DSH_BOOT__/__ModuleLoader__，
+    #      套上网关的 script-src 'self' 会被 CSP 拦成白屏；
+    #      X-Frame-Options: DENY 也会让控制台无法用 iframe 嵌入。
+    _path = request.url.path
+    if _path == "/agent" or _path.startswith("/agent/"):
+        return resp
+
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -3845,8 +3857,9 @@ agents_routes.install(
     require_admin=lambda req: _require_admin(req),
     json_body=lambda req: _json_object(req),
     model_index=_model_ids_and_aliases,
-    history_get=lambda account, kind: _history.get(account, kind),
 )
+
+# 内嵌 DSH Web：/agent → 127.0.0.1:8899（只走回环，公网不加口子）
 
 
 @app.get("/auth/users")

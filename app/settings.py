@@ -588,10 +588,26 @@ _SECTION_COMMENTS = {
 _SECTION_ORDER = ("providers", "aliases", "server", "circuit", "observability", "pricing", "download", "auth")
 
 
+def _intify(obj: Any) -> Any:
+    """把「整数值的浮点」还原成整数（50.0 → 50）。
+
+    schema 里 rate_limit_rps 这类字段是 float，经过一次「读配置 → 写回」就会把
+    手写的 `50` 变成 `50.0` —— 整份视图 PUT 回来时会被判定"文件变了"，
+    连带把注释、格式全部重写一遍。这里统一收口，保证原样写回**逐字节不动**。
+    """
+    if isinstance(obj, float) and obj.is_integer():
+        return int(obj)
+    if isinstance(obj, dict):
+        return {k: _intify(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_intify(v) for v in obj]
+    return obj
+
+
 def _dump(obj: Any) -> str:
     """稳定的 block 风格 dump（不排序键，保留插入顺序 = 面板里的顺序）。"""
     return yaml.safe_dump(
-        obj,
+        _intify(obj),
         allow_unicode=True,
         sort_keys=False,
         default_flow_style=False,
