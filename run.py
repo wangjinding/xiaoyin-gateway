@@ -13,6 +13,8 @@
 """
 
 import os
+import sys
+from pathlib import Path
 
 from app.main import CONFIG_PATH, app, config  # 触发 app.main 模块加载（含 .env 与 yaml，单份）
 from scripts.ports import pick_port, write_port
@@ -28,8 +30,24 @@ else:
     port = pick_port(int(_port_env))
 write_port("gateway", port)
 
+def _sync_nginx_once() -> None:
+    """启动时把 nginx 上游同步一次（端口是动态的，不再常驻守护进程）。"""
+    import subprocess
+    try:
+        subprocess.run(
+            [sys.executable, "scripts/sync-nginx-ports.py"],
+            cwd=str(Path(__file__).resolve().parent),
+            timeout=30, check=False,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:  # noqa: BLE001 —— 同步失败不该挡住网关启动
+        pass
+
+
 if __name__ == "__main__":
     import uvicorn
+
+    _sync_nginx_once()
 
     gs = int(os.environ.get("GATEWAY_GRACEFUL_SHUTDOWN", config.server.graceful_shutdown))
     print(f"[xiaoyin-gateway] config={CONFIG_PATH} host={host} port={port} graceful_shutdown={gs}s")

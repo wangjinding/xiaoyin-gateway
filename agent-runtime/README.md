@@ -43,9 +43,10 @@ export XIAOYIN_GATEWAY_KEY="<网关的 agent-engine key>"
 - `DSH_WEB_PORT` 是**首选**端口（默认 8899）；被占用就自动换一个
 - 实际端口写到 `home/state/web-port` 和 `data/ports.json`
 - nginx 的 `/agent/` 上游由 `scripts/sync-nginx-ports.py` 按上表改写并 reload
-  （supervisor 里 `xiaoyin-port-sync` 每 15 秒检查一次，端口没变就不动）
+- **同步时机：两个服务各自启动时各跑一次**（run-web.sh / run.py 里调用），不常驻守护；
+  端口没变就什么都不做
 - 网关同理：`GATEWAY_PORT=auto` 时先试配置里的 `server.port`，占了才换；
-  实际端口写进 `data/ports.json` → nginx 的 `/` 上游同步更新
+  实际端口写进 `data/ports.json` → 网关启动时同步 nginx 的 `/` 上游
 
 ⚠️ profile 的 `cordis.patch.yml` 里**不要**写 `webserver.port` —— 它的优先级高于命令行
 `--port`，会把动态端口覆盖成死值（踩过：占住 8899 后运行时起不来、反复重启）。

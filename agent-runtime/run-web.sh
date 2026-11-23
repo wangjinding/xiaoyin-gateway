@@ -62,6 +62,9 @@ PORT="$(python3 -c "import sys; sys.path.insert(0,'$REPO'); from scripts.ports i
 printf '%s' "$PORT" > "$PORT_FILE"
 python3 -c "import sys; sys.path.insert(0,'$REPO'); from scripts.ports import write_port; write_port('agent', int('$PORT'))" 2>/dev/null || true
 
+# 端口已定：把 nginx 上游同步一次（不再常驻守护）
+python3 "$REPO/scripts/sync-nginx-ports.py" >/dev/null 2>&1 || true
+
 echo "--- $(date '+%F %T') 启动 dsh web (首选 ${PREFER_PORT}，实际 ${PORT}) ---"
 
 # ── 启动；从输出里抓端口与 token ────────────────────────────────────
