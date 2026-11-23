@@ -15,3 +15,5 @@ home/profiles/*/model-overlay.yml
 home/profiles/*/providers.gen.yml
 
 *.log
+vm-home/
+home/profiles/*/providers.vm.yml

@@ -512,6 +512,24 @@ python run.py           # 启动时自动读取 .env
 > 凭空多出几行、改到别的变量）。
 
 
+## 智能体（内嵌 DeepSeek Harness，跑在 Firecracker microVM）
+
+控制台「智能体」页整页内嵌一套完整的 DSH，模型走本网关 `/v1`，与宿主系统里的 `dsh` 无关。
+
+```bash
+cd agent-runtime
+npm ci                          # 依赖约 1.2 GB，不进版本库
+sudo ./install-vm-host.sh       # 装 Firecracker + Kata + nerdctl + CNI + socat（幂等）
+./run-vm.sh                     # 启动（VM 地址默认 10.88.0.3，对外 127.0.0.1:8899）
+```
+
+- 智能体运行在 **Firecracker microVM**（Kata Containers 调度）里，独立内核、看不到宿主文件
+- 代码目录只读挂载进 VM；会话与工作区在 `agent-runtime/vm-home/`（不进版本库）
+- 入口地址：`/agent/`（需 token，控制台自动带）；nginx 上游由 `scripts/sync-nginx-ports.py` 同步
+- 权限三档可选（只读 / 标准 / 完全访问），**VM 内已硬件隔离，默认完全访问**
+
+完整部署、网络拓扑、排错与安全边界见 [`agent-runtime/README.md`](agent-runtime/README.md)。
+
 ## API 端点（含 v2.1 新增）
 
 | 方法 | 路径 | 鉴权 | 说明 |

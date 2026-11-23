@@ -1,0 +1,18 @@
+; 智能体：跑在 Firecracker microVM（Kata）里的完整 DeepSeek Harness
+; 安装：cp 本文件 /opt/1panel/tools/supervisord/supervisor.d/xiaoyin-dsh.ini
+;       supervisorctl -c /etc/supervisor/supervisord.conf reread
+;       supervisorctl -c /etc/supervisor/supervisord.conf update
+; 注意：command / directory 的路径按实际部署位置改（这里是通用示例）。
+[program:xiaoyin-dsh]
+command=/opt/xiaoyin-gateway/agent-runtime/run-vm.sh
+directory=/opt/xiaoyin-gateway/agent-runtime
+autostart=true
+autorestart=true
+startsecs=15
+stopsignal=TERM
+stopasgroup=false
+killasgroup=false
+stdout_logfile=/opt/1panel/tools/supervisord/log/xiaoyin-dsh.out.log
+stdout_logfile_maxbytes=10MB
+stderr_logfile=/opt/1panel/tools/supervisord/log/xiaoyin-dsh.err.log
+stderr_logfile_maxbytes=10MB

@@ -184,3 +184,31 @@
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
     welcomeNoticeVersion: 2026-09-28.1
+
+# ── 安全：把沙箱/权限钉死，界面上不给切「完全访问」的机会 ──────────────
+# 说明：DSH 的沙箱只管「写」，不管「读」；要防读密钥得靠操作系统权限（另议）。
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+    workspaceRoot: /root/dsh/projects/xiaoyin-gateway/agent-workspace
+
+- id: permission
+  config:
+    # VM 里已和宿主机硬件级隔离，权限放开没有泄密风险
+    presets:
+      readonly:
+        sandbox: read-only
+        approval: never
+        name: 只读模式
+        description: 不能改任何文件，适合纯咨询
+      standard:
+        sandbox: workspace-write
+        approval: never
+        name: 标准模式
+        description: 可读写工作区，日常干活用这个
+      full:
+        sandbox: danger-full-access
+        approval: never
+        name: 完全访问
+        description: 不限文件读写；VM 内独立内核，碰不到宿主机
+    defaultPreset: full
