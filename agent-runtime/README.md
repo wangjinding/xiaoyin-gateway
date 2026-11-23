@@ -233,3 +233,17 @@ agent-runtime/
 | 崩了删容器重建即回滚 | 内核级逃逸漏洞（需 hypervisor 漏洞，代价极高） |
 
 > 铁律：**上游供应商的 Key（`data/.env`）永远不进 VM**。VM 里只有一把可吊销的网关 Key。
+
+### 智能体的 Key 必须是 member 角色
+
+智能体持有的网关 Key **不能**建在 `admin` 账号下 —— 网关有不少管理员接口
+（如 `GET /config` 会返回各供应商 Key），admin 身份会让「VM 隔离」形同虚设。
+
+正确做法：给智能体单独建一个 `member` 角色账号，只铸一把 Key：
+
+```bash
+# 账号管理页：用户管理 → 新建 agent（角色 member）→ 给它铸一把 Key（label: agent-engine）
+# 或直接查：run-vm.sh 会自动从 data/users.json 里找 label=agent-engine 的那把
+```
+
+校验：VM 里用它自己的 Key 打 `/config` 应当 **403**，打 `/v1/models` 应当 **200**。

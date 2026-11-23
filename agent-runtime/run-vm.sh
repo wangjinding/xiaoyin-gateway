@@ -57,6 +57,11 @@ if [ ! -s home/profiles/gateway/providers.vm.yml ]; then
       > home/profiles/gateway/providers.vm.yml 2>/dev/null || true
 fi
 
+# 清理上次异常退出留下的残留：陈旧的 nerdctl 名字记录 + CNI 固定 IP 占用
+# （不清理会报 "name is already used" 或新容器拿不到 IP，VM 里只剩 lo）
+rm -f /var/lib/nerdctl/*/names/default/"$NAME" 2>/dev/null || true
+rm -f /var/lib/cni/networks/agent-net/"$VM_IP" 2>/dev/null || true
+
 nerdctl rm -f "$NAME" >/dev/null 2>&1 || true
 nerdctl run -d --name "$NAME" \
   --runtime io.containerd.kata.v2 --network agent-net --ip "$VM_IP" \

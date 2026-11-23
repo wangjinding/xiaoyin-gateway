@@ -32,9 +32,17 @@ EOF
 fi
 
 # DSH 拒绝 0.0.0.0（会检测通配地址），绑定 VM 自己的 eth0 地址
-# node:22-slim 没有 iproute2 → 用 node 自己读网卡地址
-VMIP="$(node -e "const n=require('os').networkInterfaces();const e=n.eth0||[];const v4=e.find(x=>x.family==='IPv4'||x.family===4);console.log(v4?v4.address:'')" 2>/dev/null)"
-: "${VMIP:=127.0.0.1}"
+# 读 VM 自己的 eth0 地址（容器刚起时网卡可能还没配好 → 重试最多 15 秒）
+VMIP=""
+for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  VMIP="$(node -e "const n=require('os').networkInterfaces();const e=n.eth0||[];const v4=e.find(x=>x.family==='IPv4'||x.family===4);console.log(v4?v4.address:'')" 2>/dev/null)"
+  [ -n "$VMIP" ] && break
+  sleep 1
+done
+if [ -z "$VMIP" ]; then
+  echo "[vm] 警告：没拿到 eth0 地址，退回 127.0.0.1（宿主将无法访问）"
+  VMIP=127.0.0.1
+fi
 echo "[vm] 绑定地址 $VMIP:8899"
 
 cd "$SRC"
