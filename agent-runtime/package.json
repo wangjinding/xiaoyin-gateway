@@ -1,9 +1,0 @@
-{
-  "name": "xiaoyin-agent-runtime",
-  "private": true,
-  "type": "module",
-  "description": "小银网关内嵌的 DeepSeek Harness 运行时（自带，不依赖系统 dsh）",
-  "dependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.3"
-  }
-}

@@ -1,15 +1,45 @@
-# agent-runtime —— 小银网关内嵌的「小银智能体」
+# agent-runtime —— 小银智能体 + Firecracker VM
 
-> **2026-11-24 起，VM 里跑的不再是 DSH，而是自研的「小银智能体」**
-> （独立项目：`/root/dsh/projects/xiaoyin-agent`，GitHub `wangjinding/xiaoyin-agent`）。
->
-> | 项 | DSH（旧） | 小银智能体（新） |
-> |---|---|---|
-> | 进程数 | 每用户一个（500 MB） | **一个进程，多会话**（~200 MB） |
-> | 隔离 | 沙箱只管写，读不受限 | **setpriv 降权到用户 uid，读写都由内核管** |
-> | 升级 | 抽换整棵依赖 | 与 DSH 无关 |
->
-> 回退方式：`FORCE_DSH=1` 重启 `xiaoyin-dsh`，入口脚本会回到 DSH。
+**2026-11-24 起，DSH 已从 VM 里彻底移除**（代码、node_modules、profile、会话都不在了），
+VM 里只跑自研的「小银智能体」（独立项目 `/root/dsh/projects/xiaoyin-agent`）。
+
+| 项 | 值 |
+|---|---|
+| 进程 | **一个** Node 进程（VM PID 1），多会话 |
+| 隔离 | `setpriv --reuid=<用户 uid>`，读写都由内核管 |
+| 内存 | ~200 MB（原 DSH 每用户 500 MB） |
+| 端口 | VM 8901 → 隧道 `127.0.0.1:8902` → nginx `/agent/` |
+
+## 目录分工
+
+```
+agent-runtime/
+├── run-vm.sh              启动 VM + 两条 socat 隧道 + 同步 nginx 上游
+├── vm-entrypoint.sh       VM 内入口：补系统用户 → 起小银智能体
+├── dsh-compat/            DSH 兼容垫片（挂到 VM 的 /home-dsh/node_modules）
+│   └── @deepseek-ai/{dsh-tools,dsh-credentials}
+├── vm-home/               挂到 VM 的 /home-dsh
+│   └── agent-app/         小银智能体运行副本（src/web/skills/plugins/data）
+├── vm-workspaces/         挂到 VM 的 /workspace（各用户工作区，700）
+├── dsh-compat 挂载        /home-dsh/node_modules（只读）
+├── 宿主技能                /root/.dsh/skills → /home-dsh/dsh-skills（只读）
+└── 宿主插件                /root/.dsh/profiles/web/local → /home-dsh/dsh-plugins（只读）
+```
+
+## 与 DSH 的兼容
+
+| 资源 | 兼容方式 | 说明 |
+|---|---|---|
+| **技能** | 直接读 `SKILL.md` | 扫描 `dsh-skills/`，`use_skill` 按需加载正文 |
+| **插件** | 垫片提供最小 `ctx` | 支持 `apply(ctx)`、`ctx.tools.register`、`ctx.credentials`、`ctx.logger`、`ctx.effect` |
+| **工具定义** | `defineTool` 垫片 | DSH 的「属性映射」参数自动转 JSON Schema |
+
+**已实测可加载**：`dsh-agnes-media`、`dsh-comfyui`、`dsh-cwd-compat`、`dsh-opencode-usage`。
+
+**不兼容**（需要 DSH 运行时服务）：
+- 依赖 `ctx.webServer` 设置页的交互（路由被跳过，工具仍注册）
+- 依赖 `searchProvider`、`subagent`、`session` 等服务的插件（如 `dsh-web-search-free` 会加载失败）
+- 插件里写死宿主路径的脚本：VM 里只有挂载进来的目录
 
 ## 目录分工
 

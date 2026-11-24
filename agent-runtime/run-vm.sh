@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# 在 Firecracker microVM（Kata）里跑智能体；对外仍暴露 127.0.0.1:8899
-# 两条隧道：VM→网关(10.88.0.1:8808)、宿主/nginx→VM(127.0.0.1:8899)
+# 在 Firecracker microVM（Kata）里跑「小银智能体」；对外暴露 127.0.0.1:8902
+# 两条隧道：VM→网关(10.88.0.1:8808)、宿主/nginx→VM(127.0.0.1:8901)
 set -euo pipefail
 cd "$(dirname "$0")"
 REPO="$(cd .. && pwd)"
-VM_IP="${DSH_VM_IP:-10.88.0.3}"
+VM_IP="${AGENT_VM_IP:-10.88.0.3}"
 VM_PORT=8901
 NAME=xiaoyin-agent-vm
-STATE="$PWD/home/state"
+STATE="$PWD/state"
 
 mkdir -p "$STATE"
-rm -f "$STATE/web-token" "$STATE/web-port"
+rm -f "$STATE/agent-port" "$STATE/web-token" "$STATE/web-port"
 
 # ── 1. 隧道 ──────────────────────────────────────────────────────
 # 只杀自己记过 PID 的 socat —— 绝不能按端口杀（8808 是网关本体，杀了会被 supervisor 重启，抖动）
@@ -21,11 +21,11 @@ done
 sleep 1
 # VM → 网关（只绑网桥地址，外部访问不到）
 setsid socat TCP-LISTEN:8808,bind=10.88.0.1,fork,reuseaddr TCP:127.0.0.1:8808 \
-  >/tmp/dsh-vm-socat-gw.log 2>&1 < /dev/null &
+  >/tmp/agent-vm-socat-gw.log 2>&1 < /dev/null &
 echo $! > "$STATE/socat-gw.pid"
 # 宿主/nginx → VM
 setsid socat TCP-LISTEN:8902,bind=127.0.0.1,fork,reuseaddr TCP:"$VM_IP":8901 \
-  >/tmp/dsh-vm-socat-web.log 2>&1 < /dev/null &
+  >/tmp/agent-vm-socat-web.log 2>&1 < /dev/null &
 echo $! > "$STATE/socat-agent.pid"
 
 # 放行 VM 访问网关（幂等；1Panel 的 INPUT 链默认会拦网桥来的包）
@@ -49,14 +49,6 @@ except Exception:
 PY
 )}"
 
-# VM 版模型覆盖层：baseURL 指向网桥网关（缺失时生成）
-if [ ! -s home/profiles/gateway/providers.vm.yml ]; then
-  XIAOYIN_GATEWAY_KEY="$KEY" python3 sync-providers.py >/dev/null 2>&1 || true
-  sed 's#http://127.0.0.1:8808/v1#http://10.88.0.1:8808/v1#g' \
-      home/profiles/gateway/providers.gen.yml \
-      > home/profiles/gateway/providers.vm.yml 2>/dev/null || true
-fi
-
 # 清理上次异常退出留下的残留（不清理会报 "name is already used" 或新容器拿不到 IP）
 nerdctl rm -f "$NAME" >/dev/null 2>&1 || true
 for _try in 1 2 3 4 5 6 7 8 9 10; do
@@ -75,16 +67,18 @@ nerdctl run -d --name "$NAME" \
   -v "$PWD:/app-ro:ro" \
   -v "$PWD/vm-home:/home-dsh" \
   -v "$PWD/vm-workspaces:/workspace" \
-  -e DSH_HOME=/home-dsh -e XIAOYIN_GATEWAY_KEY="$KEY" \
+  -v "/root/.dsh/skills:/home-dsh/dsh-skills:ro" \
+  -v "/root/.dsh/profiles/web/local:/home-dsh/dsh-plugins:ro" \
+  -v "$PWD/dsh-compat:/home-dsh/node_modules:ro" \
+  -e XIAOYIN_GATEWAY_KEY="$KEY" \
   docker.io/library/node:22-slim /app-ro/vm-entrypoint.sh >/dev/null
 
-# ── 3. 等 token（VM 日志里打印）──────────────────────────────────
+# ── 3. 等智能体就绪 ──────────────────────────────────────────────
 for i in $(seq 1 60); do
   sleep 2
   TOK="$(nerdctl exec "$NAME" sh -c 'wget -q -O- --timeout=2 http://127.0.0.1:8901/api/me >/dev/null 2>&1 && echo up' 2>/dev/null || true)"
   if [ -n "${TOK:-}" ]; then
-    : > "$STATE/web-token"
-    printf '%s' "$VM_PORT" > "$STATE/web-port"
+    printf '%s' "$VM_PORT" > "$STATE/agent-port"
     python3 -c "import sys; sys.path.insert(0,'$REPO'); from scripts.ports import write_port; write_port('agent', $VM_PORT)" 2>/dev/null || true
     # nginx 上游可能停留在旧的随机端口 → 每次启动同步一次
     python3 "$REPO/scripts/sync-nginx-ports.py" >/dev/null 2>&1 || true
@@ -99,7 +93,7 @@ for i in $(seq 1 60); do
   fi
 done
 if [ "${READY:-0}" != "1" ]; then
-  echo "[agent-vm] 120 秒内没等到 token" >&2
+  echo "[agent-vm] 120 秒内智能体没起来" >&2
   nerdctl logs "$NAME" 2>&1 | tail -20 >&2
   exit 1
 fi
