@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 REPO="$(cd .. && pwd)"
 VM_IP="${DSH_VM_IP:-10.88.0.3}"
-VM_PORT=8899
+VM_PORT=8901
 NAME=xiaoyin-agent-vm
 STATE="$PWD/home/state"
 
@@ -14,7 +14,7 @@ rm -f "$STATE/web-token" "$STATE/web-port"
 
 # ── 1. 隧道 ──────────────────────────────────────────────────────
 # 只杀自己记过 PID 的 socat —— 绝不能按端口杀（8808 是网关本体，杀了会被 supervisor 重启，抖动）
-for f in "$STATE/socat-gw.pid" "$STATE/socat-web.pid"; do
+for f in "$STATE/socat-gw.pid" "$STATE/socat-agent.pid"; do
   [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true
   rm -f "$f"
 done
@@ -24,9 +24,9 @@ setsid socat TCP-LISTEN:8808,bind=10.88.0.1,fork,reuseaddr TCP:127.0.0.1:8808 \
   >/tmp/dsh-vm-socat-gw.log 2>&1 < /dev/null &
 echo $! > "$STATE/socat-gw.pid"
 # 宿主/nginx → VM
-setsid socat TCP-LISTEN:8899,bind=127.0.0.1,fork,reuseaddr TCP:"$VM_IP":8899 \
+setsid socat TCP-LISTEN:8902,bind=127.0.0.1,fork,reuseaddr TCP:"$VM_IP":8901 \
   >/tmp/dsh-vm-socat-web.log 2>&1 < /dev/null &
-echo $! > "$STATE/socat-web.pid"
+echo $! > "$STATE/socat-agent.pid"
 
 # 放行 VM 访问网关（幂等；1Panel 的 INPUT 链默认会拦网桥来的包）
 BR="$(ip -o -4 addr show 2>/dev/null | awk '/10\.88\.0\.1\//{print $2}' | head -1)"
@@ -81,14 +81,14 @@ nerdctl run -d --name "$NAME" \
 # ── 3. 等 token（VM 日志里打印）──────────────────────────────────
 for i in $(seq 1 60); do
   sleep 2
-  TOK="$(nerdctl logs "$NAME" 2>&1 | tr -d '\r' | { grep -oE 'token=[A-Za-z0-9_-]+' || true; } | tail -1 | cut -d= -f2)"
+  TOK="$(nerdctl exec "$NAME" sh -c 'wget -q -O- --timeout=2 http://127.0.0.1:8901/api/me >/dev/null 2>&1 && echo up' 2>/dev/null || true)"
   if [ -n "${TOK:-}" ]; then
-    printf '%s' "$TOK" > "$STATE/web-token"
+    : > "$STATE/web-token"
     printf '%s' "$VM_PORT" > "$STATE/web-port"
     python3 -c "import sys; sys.path.insert(0,'$REPO'); from scripts.ports import write_port; write_port('agent', $VM_PORT)" 2>/dev/null || true
     # nginx 上游可能停留在旧的随机端口 → 每次启动同步一次
     python3 "$REPO/scripts/sync-nginx-ports.py" >/dev/null 2>&1 || true
-    echo "[agent-vm] 就绪：VM $VM_IP:$VM_PORT（第 $((i*2)) 秒）"
+    echo "[agent-vm] 就绪：小银智能体 VM $VM_IP:$VM_PORT（第 $((i*2)) 秒）"
     READY=1
     break
   fi

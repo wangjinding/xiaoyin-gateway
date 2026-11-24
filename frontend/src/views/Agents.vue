@@ -1,14 +1,13 @@
 <template>
-  <!-- 智能体页 = 内嵌的完整 DeepSeek Harness（整页 iframe，不留网关自己的外壳） -->
+  <!-- 智能体页 = 内嵌「小银智能体」（整页 iframe，不留网关自己的外壳） -->
   <div class="dsh-page">
     <iframe
-      ref="frame"
       v-if="url"
       :src="url"
       class="dsh-frame"
       allow="clipboard-read; clipboard-write; fullscreen"
       referrerpolicy="no-referrer"
-      @load="onFrameLoad"
+      @load="loaded = true"
     />
 
     <div v-else class="dsh-state">
@@ -25,48 +24,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { dshEntry } from '../lib/agents'
-import { useSessionStore } from '../store/session'
 
 const { t } = useI18n()
-const store = useSessionStore()
 
 const url = ref('')
 const loading = ref(true)
 const loaded = ref(false)
 const frame = ref<HTMLIFrameElement | null>(null)
-
-/** 管理员看完整界面；普通用户只留聊天区（隐藏 DSH 左侧的工作区/会话栏） */
-const isAdmin = computed(() => store.isAdmin)
-
-function onFrameLoad() {
-  loaded.value = true
-  if (!isAdmin.value) hideSidebar()
-}
-
-/**
- * 极简模式：往同源 iframe 里注入一段样式，把侧栏和拖拽条藏掉，聊天区铺满。
- * DSH 的 class 是 CSS Modules 加的哈希前缀，所以用 [class*="xxx"] 选择器，升级也不会失效。
- */
-function hideSidebar() {
-  const doc = frame.value?.contentDocument
-  if (!doc) return
-  const STYLE_ID = 'gw-mini-agent'
-  if (doc.getElementById(STYLE_ID)) return
-  const el = doc.createElement('style')
-  el.id = STYLE_ID
-  el.textContent = `
-    /* 布局是 grid：列宽写死在 grid-template-columns 上，只藏元素不够，得改列 */
-    [class*="frame"] { grid-template-columns: 0 1fr 0 !important; }
-    [class*="sidebarCol"], [class*="handle"], [class*="rightbarCol"] { display: none !important; }
-    [class*="centerCol"] { width: auto !important; flex: 1 1 auto !important; }
-    /* 工作区选择器也藏掉：普通用户只有一个智能体，不该让他挑工作区 */
-    button[class*="_workspace"], [class*="heroWorkspaceRow"] { display: none !important; }
-  `
-  doc.head.appendChild(el)
-}
 
 async function load() {
   loading.value = true

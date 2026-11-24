@@ -31,6 +31,16 @@ if [ ! -f "$WS" ]; then
 EOF
 fi
 
+# 优先跑「小银智能体」（自研，单进程多会话）；没有就回退 DSH
+if [ -f /home-dsh/agent-app/src/server.js ] && [ "${FORCE_DSH:-0}" != "1" ]; then
+  echo "[vm] 启动小银智能体（自研）"
+  export AGENT_HOST=0.0.0.0 AGENT_PORT=8901
+  export GATEWAY_KEY="${GATEWAY_KEY:-$XIAOYIN_GATEWAY_KEY}"
+  export GATEWAY_BASE="${GATEWAY_BASE:-http://10.88.0.1:8808/v1}"
+  exec node /home-dsh/agent-app/src/server.js
+fi
+echo "[vm] 回退到 DSH"
+
 # DSH 拒绝 0.0.0.0（会检测通配地址），绑定 VM 自己的 eth0 地址
 # 读 VM 自己的 eth0 地址（容器刚起时网卡可能还没配好 → 重试最多 15 秒）
 VMIP=""

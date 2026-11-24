@@ -29,10 +29,12 @@
 
       <el-alert v-if="err" :title="err" type="error" class="login-err" show-icon :closable="false" />
 
+      <!-- 回车统一交给表单的原生提交（下面 @submit.prevent），输入框上不要再挂
+           @keyup.enter —— 那样回车会同时触发「隐式提交」和「keyup」两遍，登录提示会弹两次。 -->
       <form @submit.prevent="doLogin">
         <div class="field">
           <label>{{ t('login.userPlaceholder') }}</label>
-          <el-input v-model="username" size="large" autocomplete="username" @keyup.enter="doLogin" />
+          <el-input v-model="username" size="large" autocomplete="username" />
         </div>
         <div class="field">
           <label>{{ t('login.passPlaceholder') }}</label>
@@ -42,7 +44,6 @@
             size="large"
             show-password
             autocomplete="current-password"
-            @keyup.enter="doLogin"
           />
         </div>
         <el-button type="primary" size="large" class="submit" :loading="loading" native-type="submit">
@@ -73,6 +74,9 @@ const err = ref('')
 function onLang(l: string) { setLocale(l as any) }
 
 async function doLogin() {
+  // 防重入：回车可能同时走「隐式提交」和输入框上的回车快捷键（历史上就是这样弹了两次
+  // 「登录成功」），连点按钮也会。登录请求在途时直接忽略后续触发。
+  if (loading.value) return
   err.value = ''
   if (!username.value.trim() || !password.value) { err.value = t('login.errEmpty'); return }
   loading.value = true

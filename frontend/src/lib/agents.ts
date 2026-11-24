@@ -62,4 +62,4 @@ export const restoreAgent = (slug: string) =>
   req<AgentItem>(`/agents/${slug}/restore`, { method: 'POST' })
 
 /** 完整 DSH 的访问地址（带运行时 token，只有后端读得到）。 */
-export const dshEntry = () => req<DshEntry>('/agents/dsh/entry')
+export const dshEntry = () => req<DshEntry>('/agents/entry')

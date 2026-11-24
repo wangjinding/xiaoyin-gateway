@@ -6,8 +6,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import os
+import secrets
 import socket
+import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,6 +21,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from app.agents import Agent, AgentStore, AgentsError
 
 log = logging.getLogger("xiaoyin-gateway.agents")
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+async def _offload(fn, *args):
+    """把阻塞函数丢到线程池，避免卡住事件循环。"""
+    return await asyncio.to_thread(fn, *args)
 
 #: 内嵌 DSH 的首选端口（实际端口是动态的，见 scripts/ports.py）
 DSH_PORT_PREFERRED = 8899
@@ -92,6 +103,19 @@ def install(app: FastAPI, *, store: AgentStore,
             "port": st["port"],
         }
 
+    # ── 小银智能体入口（按登录用户下发 token，首次访问自动开通）──────
+    @app.get("/agents/entry")
+    async def agents_entry(request: Request, _auth=Depends(require_auth)):
+        account = request.state.account
+        name = str(account or "").strip()
+        if not name:
+            raise HTTPException(401, "未登录")
+        try:
+            url = await _offload(_ensure_agent_user, name, request.state.role)
+        except Exception as e:  # noqa: BLE001 —— 开通失败要如实告诉前端
+            raise HTTPException(500, f"智能体开通失败：{e}")
+        return {"url": url, "ready": bool(url)}
+
     # ── 新建 ────────────────────────────────────────────────────────
     @app.post("/agents")
     async def agents_create(request: Request, _auth=Depends(require_auth)):
@@ -165,3 +189,89 @@ def install(app: FastAPI, *, store: AgentStore,
             },
             "dsh": {"ready": st["ready"], "port": st["port"]},
         }
+
+
+# ── 小银智能体：用户开通与入口 ────────────────────────────────────────
+_AGENT_DATA = Path(
+    os.environ.get("AGENT_DATA_DIR")
+    or str(_PROJECT_ROOT / "agent-runtime" / "vm-home" / "agent-app" / "data")
+)
+_AGENT_CONTAINER = os.environ.get("AGENT_CONTAINER", "xiaoyin-agent-vm")
+_agent_provisioned: set[str] = set()
+
+
+def _agent_users_path() -> Path:
+    return _AGENT_DATA / "users.json"
+
+
+def _load_agent_users() -> dict:
+    try:
+        return json.loads(_agent_users_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_agent_users(users: dict) -> None:
+    p = _agent_users_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.chmod(0o600)
+    tmp.replace(p)
+
+
+def _provision_system_user(name: str, prefer_uid: int | None = None) -> int | None:
+    """在 VM 里确保系统用户与工作区存在（幂等），返回其 uid。失败返回 None。"""
+    script = (
+        f"if ! id -u {name} >/dev/null 2>&1; then "
+        + (f"  useradd -M -u {prefer_uid} -s /bin/sh {name} 2>/dev/null || true; " if prefer_uid else "")
+        + f"  id -u {name} >/dev/null 2>&1 || useradd -M -s /bin/sh {name} 2>/dev/null || adduser -D -s /bin/sh {name} 2>/dev/null || true; "
+        f"fi; "
+        f"uid=$(id -u {name} 2>/dev/null || echo ''); "
+        f"if [ -n \"$uid\" ]; then "
+        f"  mkdir -p /workspace/{name}; chown -R {name}:{name} /workspace/{name} 2>/dev/null || true; "
+        f"  chmod 700 /workspace/{name} 2>/dev/null || true; "
+        f"  chmod 711 /workspace 2>/dev/null || true; "
+        f"fi; "
+        f"echo \"$uid\""
+    )
+    try:
+        r = subprocess.run(
+            ["nerdctl", "exec", _AGENT_CONTAINER, "sh", "-c", script],
+            capture_output=True, timeout=30, check=False, text=True,
+        )
+        out = (r.stdout or "").strip().splitlines()
+        return int(out[-1]) if out and out[-1].isdigit() else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _ensure_agent_user(name: str, role: str) -> str:
+    """返回该用户的小银智能体入口 URL（含 token）。首次调用会自动开通。"""
+    users = _load_agent_users()
+    rec = users.get(name)
+
+    if role == "admin":
+        rec = rec or {}
+        rec.update({"uid": 0, "gid": 0, "workspace": "/workspace", "role": "admin"})
+        rec.setdefault("token", "agt-" + secrets.token_urlsafe(24))
+        users[name] = rec
+        _save_agent_users(users)
+        return f"/agent/?token={rec['token']}"
+
+    # 每次都校验一次系统用户（VM 重启会丢掉用户/属主，幂等开销很小）
+    live_uid = _provision_system_user(name, (rec or {}).get("uid") or None)
+
+    if not rec or not rec.get("uid"):
+        uid = live_uid or (1001 + len(users))
+        rec = rec or {}
+        rec.update({"uid": uid, "gid": uid, "workspace": f"/workspace/{name}", "role": "member"})
+        rec.setdefault("token", "agt-" + secrets.token_urlsafe(24))
+        users[name] = rec
+        _save_agent_users(users)
+    elif live_uid and live_uid != rec.get("uid"):
+        rec["uid"] = rec["gid"] = live_uid
+        _save_agent_users(users)
+
+    _agent_provisioned.add(name)
+    return f"/agent/?token={rec['token']}"
