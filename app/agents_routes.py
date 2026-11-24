@@ -263,7 +263,9 @@ def _ensure_agent_user(name: str, role: str) -> str:
     live_uid = _provision_system_user(name, (rec or {}).get("uid") or None)
 
     if not rec or not rec.get("uid"):
-        uid = live_uid or (1001 + len(users))
+        # 新用户：取已有最大值 +1，保证不与历史 uid 冲突
+        used = {int(u.get("uid") or 0) for n, u in users.items() if n != "admin"}
+        uid = live_uid or (max(used | {1000}) + 1)
         rec = rec or {}
         rec.update({"uid": uid, "gid": uid, "workspace": f"/workspace/{name}", "role": "member"})
         rec.setdefault("token", "agt-" + secrets.token_urlsafe(24))

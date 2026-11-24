@@ -36,6 +36,23 @@ if [ -f /home-dsh/agent-app/src/server.js ] && [ "${FORCE_DSH:-0}" != "1" ]; the
   echo "[vm] 启动小银智能体（自研）"
   export AGENT_HOST=0.0.0.0 AGENT_PORT=8901
   export GATEWAY_KEY="${GATEWAY_KEY:-$XIAOYIN_GATEWAY_KEY}"
+  export TZ=Asia/Shanghai
+  # 容器每次重建都会丢系统用户 → 启动时按 users.json 补齐（幂等）
+  node -e '
+    const fs = require("fs");
+    const { execSync } = require("child_process");
+    let users = {};
+    try { users = JSON.parse(fs.readFileSync("/home-dsh/agent-app/data/users.json", "utf8")); } catch {}
+    for (const [name, u] of Object.entries(users)) {
+      if (!u.uid) continue;
+      try {
+        execSync(`id -u ${name} >/dev/null 2>&1 || useradd -M -u ${u.uid} -s /bin/sh ${name}`, { stdio: "ignore" });
+        execSync(`mkdir -p ${u.workspace} && chown -R ${name}:${name} ${u.workspace} && chmod 700 ${u.workspace} && chmod 711 /workspace`, { stdio: "ignore" });
+        console.log(`[vm] 用户就绪 ${name} (uid ${u.uid})`);
+      } catch (e) { console.error(`[vm] 用户 ${name} 初始化失败: ${e.message}`); }
+    }
+  '
+  echo "[vm] 启动小银智能体（自研）"
   export GATEWAY_BASE="${GATEWAY_BASE:-http://10.88.0.1:8808/v1}"
   exec node /home-dsh/agent-app/src/server.js
 fi
