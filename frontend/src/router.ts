@@ -20,7 +20,7 @@ const router = createRouter({
         { path: 'videos', name: 'videos', component: () => import('./views/Videos.vue') },
         { path: 'models', name: 'models', component: () => import('./views/Models.vue') },
         // 第三十八轮：智能体（一期仅管理员；用 meta.admin 做双层守卫）
-        { path: 'agents', name: 'agents', component: () => import('./views/Agents.vue'), meta: { admin: true, agents: true } },
+        { path: 'agents', name: 'agents', component: () => import('./views/Agents.vue'), meta: { agents: true } },
         { path: 'metrics', name: 'metrics', component: () => import('./views/Metrics.vue') },
         { path: 'keys', name: 'keys', component: () => import('./views/ApiKeys.vue') },
         { path: 'users', name: 'users', component: () => import('./views/Users.vue'), meta: { admin: true } },

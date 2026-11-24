@@ -80,10 +80,11 @@ def install(app: FastAPI, *, store: AgentStore,
             "dsh": {"ready": dsh["ready"], "port": dsh["port"]},
         }
 
-    # ── 完整 DSH 入口（带 token，只发给管理员）──────────────────────
+    # ── DSH 入口（带 token，所有登录用户可用）────────────────────────
+    # 注意：目前所有人共用同一个 DSH 实例（同一 token），隔离靠前端隐藏侧栏，
+    #       属于「视觉隔离」；真正的每人独立实例见 agent-runtime/README 的多用户计划。
     @app.get("/agents/dsh/entry")
     async def agents_dsh_entry(request: Request, _auth=Depends(require_auth)):
-        require_admin(request)
         st = dsh_runtime_state()
         return {
             "url": f"/agent/?token={st['token']}" if st["token"] else "",
