@@ -1,4 +1,47 @@
-# agent-runtime —— 小银网关内嵌的 DeepSeek Harness
+# agent-runtime —— 小银网关内嵌的「小银智能体」
+
+> **2026-11-24 起，VM 里跑的不再是 DSH，而是自研的「小银智能体」**
+> （独立项目：`/root/dsh/projects/xiaoyin-agent`，GitHub `wangjinding/xiaoyin-agent`）。
+>
+> | 项 | DSH（旧） | 小银智能体（新） |
+> |---|---|---|
+> | 进程数 | 每用户一个（500 MB） | **一个进程，多会话**（~200 MB） |
+> | 隔离 | 沙箱只管写，读不受限 | **setpriv 降权到用户 uid，读写都由内核管** |
+> | 升级 | 抽换整棵依赖 | 与 DSH 无关 |
+>
+> 回退方式：`FORCE_DSH=1` 重启 `xiaoyin-dsh`，入口脚本会回到 DSH。
+
+## 目录分工
+
+```
+agent-runtime/
+├── run-vm.sh                 启动 VM（Kata/Firecracker）+ socat 隧道 + nginx 同步
+├── vm-entrypoint.sh          VM 内入口：优先起 /home-dsh/agent-app（小银智能体）
+├── vm-home/                  挂到 VM 的 /home-dsh（智能体代码、数据、技能、插件）
+│   └── agent-app/            ← 小银智能体的运行副本（由 xiaoyin-agent 项目同步）
+├── vm-workspaces/            挂到 VM 的 /workspace（各用户工作区，700）
+├── home/                     宿主直跑模式用的 DSH_HOME（回退时用）
+└── supervisor/xiaoyin-dsh.ini.example
+```
+
+## 多用户是怎么隔离的
+
+```
+宿主：网关 /agents/entry → 按登录用户发 token，首次访问自动在 VM 里建系统用户
+VM  ：小银智能体（单进程，root）
+        └─ 每次工具调用：setpriv --reuid=<该用户 uid> ...（cwd = /workspace/<user>）
+             /workspace/<user> 是 700，别人（不同 uid）连目录都进不去
+```
+
+| 想限制 | 靠什么 |
+|---|---|
+| 读别人工作区 | 内核（uid + 700） |
+| 写别人工作区 | 内核 |
+| 看别人会话 | 会话按用户分目录，700；管理端用 root 读 |
+| 连别人实例 | 不是多实例——根本没这回事 |
+
+---
+
 
 网关「智能体」页内嵌的那套 DSH 就住在这个目录。它和宿主机上系统级的那份 `dsh` **完全无关**：
 
