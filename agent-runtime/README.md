@@ -209,7 +209,8 @@ agent-runtime/
 ├── plugins/                           二开入口
 ├── home/                              宿主侧 DSH_HOME（直跑用）
 │   └── profiles/gateway/              profile（进库）
-├── vm-home/                           VM 侧 DSH_HOME（会话/工作区，不进库）
+├── vm-home/                           VM 侧 DSH_HOME（会话/配置，不进库）
+├── vm-workspaces/                     用户工作区（宿主挂载到 /workspace，不进库）
 └── vm-workspace/                      （可选）宿主侧 vs VM 工作区共享目录
 ```
 

@@ -17,3 +17,4 @@ home/profiles/*/providers.gen.yml
 *.log
 vm-home/
 home/profiles/*/providers.vm.yml
+vm-workspaces/

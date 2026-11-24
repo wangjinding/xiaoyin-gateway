@@ -74,6 +74,7 @@ nerdctl run -d --name "$NAME" \
   --memory 1536m --cpus 2 \
   -v "$PWD:/app-ro:ro" \
   -v "$PWD/vm-home:/home-dsh" \
+  -v "$PWD/vm-workspaces:/workspace" \
   -e DSH_HOME=/home-dsh -e XIAOYIN_GATEWAY_KEY="$KEY" \
   docker.io/library/node:22-slim /app-ro/vm-entrypoint.sh >/dev/null
 
