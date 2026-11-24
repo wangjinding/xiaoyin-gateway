@@ -26,6 +26,7 @@ export function navGroups(isAdmin: boolean): NavGroup[] {
     { path: '/videos', key: 'videos', icon: 'vid' },
   ]
   core.push({ path: '/agents', key: 'agents', icon: 'bot' })
+  if (isAdmin) core.push({ path: '/agent-audit', key: 'agentaudit', icon: 'eye' })
 
   const groups: NavGroup[] = [
     {
