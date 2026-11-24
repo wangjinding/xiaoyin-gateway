@@ -55,7 +55,7 @@ onMounted(load)
 /* 顶栏约 56px，其余铺满；用 dvh 兼容移动端地址栏 */
 .dsh-page {
   position: relative;
-  height: calc(100vh - 56px);
+  height: 100vh;
   min-height: 420px;
   background: #fff;
 }

@@ -7,7 +7,7 @@
 
     <div class="main">
       <!-- 宽屏顶栏：页面标题 + 副标题 + 连接状态 + 主题 / 刷新 / 通知 / 账号 -->
-      <header v-if="!isMobile" class="top">
+      <header v-if="!isMobile && route.name !== 'agents'" class="top">
         <div>
           <h2>{{ pageTitle }}</h2>
           <div v-if="pageSub" class="crumb">{{ pageSub }}</div>
@@ -61,7 +61,7 @@
       </header>
 
       <!-- 窄屏顶栏：汉堡唤出抽屉，右侧只留主题与账号 -->
-      <header v-else class="m-top">
+      <header v-else-if="isMobile" class="m-top">
         <div class="ic" @click="drawerOpen = true"><Icon name="menu" :size="18" /></div>
         <h3>{{ pageTitle }}</h3>
         <div class="top-right">
@@ -238,4 +238,6 @@ async function onAuthExpired() {
 @media (max-width: 768px) {
   .top-right { gap: 6px; }
 }
+
+.agent-spacer { flex: 1; }
 </style>
