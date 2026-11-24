@@ -62,6 +62,8 @@ function hideSidebar() {
     [class*="frame"] { grid-template-columns: 0 1fr 0 !important; }
     [class*="sidebarCol"], [class*="handle"], [class*="rightbarCol"] { display: none !important; }
     [class*="centerCol"] { width: auto !important; flex: 1 1 auto !important; }
+    /* 工作区选择器也藏掉：普通用户只有一个智能体，不该让他挑工作区 */
+    button[class*="_workspace"], [class*="heroWorkspaceRow"] { display: none !important; }
   `
   doc.head.appendChild(el)
 }
