@@ -215,7 +215,6 @@ async function onAuthExpired() {
 </script>
 
 <style scoped>
-.app.on-agents .rail { background: #f9fafb; }
 
 .t-row { display: flex; align-items: center; gap: 8px; }
 .t-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
