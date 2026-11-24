@@ -11,6 +11,14 @@ export TZ=Asia/Shanghai
 
 mkdir -p /home-dsh/state /workspace
 
+# EdgeOne 有时会把域名解析到已下线的边缘 IP；可用 AGENT_EDGE_IP 固定一个可用节点
+if [ -n "${AGENT_EDGE_IP:-}" ]; then
+  for d in api.wangjinding.com blog.wangjinding.com; do
+    grep -q " $d" /etc/hosts || echo "$AGENT_EDGE_IP $d" >> /etc/hosts
+  done
+  echo "[vm] 边缘 IP 固定为 $AGENT_EDGE_IP"
+fi
+
 # 容器每次重建都会丢系统用户 → 启动时按 users.json 补齐（幂等）
 node -e '
   const fs = require("fs");

@@ -71,6 +71,7 @@ nerdctl run -d --name "$NAME" \
   -v "/root/.dsh/profiles/web/local:/home-dsh/dsh-plugins:ro" \
   -v "$PWD/dsh-compat:/home-dsh/node_modules:ro" \
   -e XIAOYIN_GATEWAY_KEY="$KEY" \
+  -e AGENT_EDGE_IP="${AGENT_EDGE_IP:-36.156.230.25}" \
   docker.io/library/node:22-slim /app-ro/vm-entrypoint.sh >/dev/null
 
 # ── 3. 等智能体就绪 ──────────────────────────────────────────────
